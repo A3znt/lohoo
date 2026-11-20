@@ -1,0 +1,7 @@
+{
+  "extends": "expo/tsconfig.base",
+  "compilerOptions": {
+    "strict": true
+  },
+  "exclude": ["web", "public", "netlify", "node_modules"]
+}
