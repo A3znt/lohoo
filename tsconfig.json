@@ -3,5 +3,5 @@
   "compilerOptions": {
     "strict": true
   },
-  "exclude": ["web", "public", "netlify", "node_modules"]
+  "exclude": ["web", "public", "netlify", "integrations", "node_modules"]
 }
