@@ -24,28 +24,66 @@ export interface WarehouseProduct { id: string; name: string; salePrice: number;
 export interface Bootstrap { actor: Actor; orders: Order[]; settings: Settings; resalaConfigured: boolean; agents: AgentSummary[]; commission: CommissionSummary }
 export type OrderInput = Pick<Order, 'id' | 'source' | 'customer' | 'phone' | 'city' | 'area' | 'address' | 'product' | 'quantity' | 'unitPrice' | 'deliveryFee' | 'paid' | 'notes'> & { serviceId?: string; warehouseProductId: string; warehouseVariantId: string; agentId?: string };
 
+export class ApiError extends Error {
+  constructor(message: string, public readonly status: number) {
+    super(message);
+    this.name = 'ApiError';
+  }
+}
+
+interface ApiResponse {
+  ok?: boolean;
+  error?: string;
+  authenticated?: boolean;
+  actor?: Actor;
+  data?: unknown;
+}
+
+async function requestJson(url: string, options: RequestInit): Promise<ApiResponse> {
+  let response: Response;
+  try {
+    response = await fetch(url, { credentials: 'same-origin', ...options });
+  } catch {
+    throw new ApiError('تعذر الاتصال بالخادم. تحقق من الإنترنت ثم حاول مجددًا.', 0);
+  }
+  let result: ApiResponse;
+  try {
+    result = await response.json() as ApiResponse;
+  } catch {
+    throw new ApiError('استجابة غير متوقعة من الخادم. حدّث الصفحة ثم حاول مجددًا.', response.status);
+  }
+  if (!result || typeof result !== 'object') {
+    throw new ApiError('الاستجابة من الخادم غير صحيحة.', response.status);
+  }
+  if (!response.ok || result.ok !== true) {
+    const message = response.status === 401 ? 'انتهت الجلسة، سجّل الدخول مجددًا.'
+      : result.error || `تعذر تنفيذ الطلب (HTTP ${response.status}).`;
+    throw new ApiError(message, response.status);
+  }
+  return result;
+}
+
+const jsonPost = (body: Record<string, unknown>): RequestInit => ({
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify(body),
+});
+
 export async function session(): Promise<Actor | null> {
-  const response = await fetch('/api/auth', { credentials: 'same-origin' });
-  const result = await response.json();
-  return result.authenticated ? result.actor as Actor : null;
+  const result = await requestJson('/api/auth', { method: 'GET' });
+  return result.authenticated && result.actor ? result.actor : null;
 }
 export async function login(token: string): Promise<void> {
-  const response = await fetch('/api/auth', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token }) });
-  const result = await response.json();
-  if (!response.ok || !result.ok) throw new Error(result.error || 'تعذر تسجيل الدخول');
+  await requestJson('/api/auth', jsonPost({ token }));
 }
 export async function loginAgent(username: string, password: string): Promise<void> {
-  const response = await fetch('/api/auth', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username, password }) });
-  const result = await response.json();
-  if (!response.ok || !result.ok) throw new Error(result.error || 'تعذر تسجيل الدخول');
+  await requestJson('/api/auth', jsonPost({ username, password }));
 }
 export async function logout(): Promise<void> {
-  await fetch('/api/auth', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'logout' }) });
+  await requestJson('/api/auth', jsonPost({ action: 'logout' }));
 }
 export async function api<T>(action: string, data: Record<string, unknown> = {}): Promise<T> {
-  const response = await fetch('/api/orders', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, ...data }) });
-  const result = await response.json().catch(() => ({}));
-  if (!response.ok || !result.ok) throw new Error(result.error || `خطأ ${response.status}`);
+  const result = await requestJson('/api/orders', jsonPost({ action, ...data }));
   return result.data as T;
 }
 export function money(value: number): string { return `${new Intl.NumberFormat('ar-LY', { minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(value)} د.ل`; }
