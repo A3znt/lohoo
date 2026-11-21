@@ -12,6 +12,7 @@ import '@fontsource/ibm-plex-sans-arabic/arabic-500.css';
 import '@fontsource/ibm-plex-sans-arabic/arabic-600.css';
 import '@fontsource/ibm-plex-sans-arabic/arabic-700.css';
 import './style.css';
+import './apple-theme.css';
 import OrderForm from './OrderForm';
 import { dashboardMetrics, filterOrders } from './order-view';
 import { api, login, loginAgent, logout, money, orderNumber, orderTotal, session, type Actor, type AgentSummary, type Bootstrap, type Order, type OrderInput, type OrderStatus, type Package, type Settings } from './api';
@@ -123,7 +124,7 @@ function App() {
         {([
           ['overview', LayoutDashboard, 'نظرة عامة'], ['orders', ClipboardList, 'الطلبات'],
           ['shipping', Truck, 'الشحن والتوصيل'], ...(data.actor.role === 'admin' ? [['team', Users, 'المندوبات'], ['settings', Settings2, 'الإعدادات']] as const : []),
-        ] as const).map(([key, Icon, label]) => <button key={key} className={view === key ? 'active' : ''} onClick={() => navigate(key)}><Icon size={19} strokeWidth={1.9} /><span>{label}</span>{key === 'orders' && <b>{metrics.total}</b>}</button>)}
+        ] as const).map(([key, Icon, label]) => <button type="button" key={key} className={view === key ? 'active' : ''} aria-current={view === key ? 'page' : undefined} onClick={() => navigate(key)}><Icon size={19} strokeWidth={1.9} /><span>{label}</span>{key === 'orders' && <b>{metrics.total}</b>}</button>)}
       </nav>
       <div className="sidebar-bottom">
         <div className="sidebar-tip"><Sparkles size={18} /><strong>كل شيء في مكان واحد</strong><span>من رسالة الزبون إلى وصول الطلب.</span></div>
@@ -156,6 +157,16 @@ function App() {
         {view === 'settings' && data.actor.role === 'admin' && <SettingsPage settings={data.settings} resalaConfigured={data.resalaConfigured} busy={busy} onSave={async (next) => { try { await action(() => api<Settings>('saveSettings', { settings: next }), 'تم حفظ الإعدادات'); } catch { /* toast */ } }} />}
       </div>
     </main>
+    <nav className="bottom-tabs" aria-label="التنقل السريع">
+      {([
+        ['overview', LayoutDashboard, 'الرئيسية'], ['orders', ClipboardList, 'الطلبات'],
+        ['shipping', Truck, 'الشحن'], ...(data.actor.role === 'admin' ? [['team', Users, 'الفريق'], ['settings', Settings2, 'الإعدادات']] as const : []),
+      ] as const).map(([key, Icon, label]) =>
+        <button type="button" key={key} className={view === key ? 'active' : ''} aria-current={view === key ? 'page' : undefined} onClick={() => navigate(key)}>
+          <Icon size={21} strokeWidth={1.8} aria-hidden="true" />
+          <span>{label}</span>
+        </button>)}
+    </nav>
     {trash && <div className="confirm-layer"><section className="confirm-card" style={{maxHeight:'85dvh',overflow:'auto'}}><h3>المحذوفات</h3>{!trash.length && <p>لا توجد طلبات محذوفة</p>}{trash.map(o => <p key={o.id}>{o.customer} · {orderNumber(o)} {o.darbStatus === 'not_found' ? ' · لم يعثر درب السبيل على المرجع' : o.carrierDeletedAt ? ' · حُذفت الشحنة من درب السبيل' : o.shipmentReference ? ' · حُذف السجل محليًا فقط' : ''} {o.shipmentReference && !o.carrierDeletedAt && <button className="btn ghost" disabled={busy} onClick={async () => { if (!window.confirm('حذف الشحنة نهائيًا من درب السبيل؟')) return; try { await action(() => api('deleteOrder', {id:o.id}), 'حُذفت الشحنة'); setTrash(await api<Order[]>('trash')); } catch { /* toast */ } }}>حذف من درب السبيل</button>} <button className="btn ghost" disabled={busy} onClick={async () => { try { await action(() => api('restoreOrder', { id:o.id }), 'تمت استعادة الطلب'); setTrash(trash.filter(row => row.id !== o.id)); } catch { /* toast */ } }}>استعادة السجل</button></p>)}<button className="btn primary" onClick={() => setTrash(null)}>إغلاق</button></section></div>}
     {editing && <EditOrder order={editing} actor={data.actor} agents={data.agents} busy={busy} close={() => setEditing(null)} save={async form => { try { const result = await action(() => api<Order>('editOrder', { id:editing.id, version:editing.updatedAt, order:form }), 'حُفظت التعديلات'); setEditing(null); setSelected(result); } catch { /* toast */ } }} />}
     {formOpen && <OrderForm onClose={() => setFormOpen(false)} onCreate={create} busy={busy} defaultServiceId={data.settings.serviceId} agents={data.agents} actor={data.actor} />}
