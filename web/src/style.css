@@ -60,3 +60,22 @@
 .quote-card .quote-part{display:flex;justify-content:space-between;gap:12px;padding:5px 0;border-top:1px solid #dcece0;color:#557566;font-size:10px;font-weight:400}.quote-part b{color:#1b5b41;white-space:nowrap}
 .order-form-new .field{font-size:13px}.order-form-new .field input,.order-form-new .field select{font-size:14px;height:46px}.form-section-title strong{font-size:15px}.form-section-title small,.form-loading,.quote-card>div{font-size:12px}.quote-card>small,.quote-card .quote-part{font-size:11px}
 .retry-panel{background:#fff7eb;border:1px solid #f5dbb2;border-radius:13px;padding:17px;margin-top:15px}.retry-panel p{font-size:12px;color:#8a6c4f;line-height:1.7}.retry-panel .field{display:grid;gap:7px;font-size:12px;color:#5c6c5e}.retry-panel input,.retry-panel select{height:42px;width:100%;border:1px solid #e3d9c9;border-radius:9px;background:#fff;padding:8px;font:inherit}.retry-panel .btn{margin-top:15px}
+
+/* Web dashboard data freshness and manual recovery */
+.sync-time{font-size:11px;color:#6d837a;white-space:nowrap}
+.sync-time.has-error{color:#aa6b33;font-weight:700}
+.sync-button{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:36px;padding:7px 11px;border:1px solid #dce8e2;border-radius:9px;background:#f8fbf9;color:#1c6d52;font:inherit;font-size:11px;font-weight:700}
+.sync-button:hover:not(:disabled){background:#ebf5ef}
+.sync-warning{display:flex;align-items:center;gap:12px;margin-bottom:22px;padding:14px 17px;background:#fff9ed;border:1px solid #efdcb6;border-radius:12px;color:#74542b;font-size:12px;line-height:1.8}
+.sync-warning svg{flex-shrink:0;color:#ae7b30}
+.sync-warning span{flex:1}
+.sync-warning button{flex-shrink:0;border:1px solid #e8ce98;border-radius:8px;background:#fff;color:#735020;padding:6px 11px;font:inherit;font-size:11px;font-weight:700}
+.sync-warning button:hover:not(:disabled){background:#fff3d8}
+@media(max-width:620px){
+  .sync-time{display:none}
+  .sync-button{width:36px;height:36px;padding:0}
+  .sync-button span{display:none}
+  .sync-warning{align-items:flex-start;flex-wrap:wrap;padding:12px}
+  .sync-warning span{flex-basis:calc(100% - 35px)}
+  .sync-warning button{margin-right:31px}
+}
