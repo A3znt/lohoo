@@ -198,7 +198,10 @@ function App() {
     } catch {
       setToast('تعذر تجهيز ملف CSV على هذا الجهاز. حاول من متصفح آخر.');
     } finally {
-      if (url) window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      if (url) {
+        const objectUrl = url;
+        window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+      }
     }
   }
 
