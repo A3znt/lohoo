@@ -1,5 +1,5 @@
 import { confirmationText } from '../../shared/confirmation.mjs';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
   ArrowDownLeft, ArrowLeft, ArrowUpLeft, Bell, Box, Check, CheckCheck, ChevronLeft,
@@ -13,6 +13,7 @@ import '@fontsource/ibm-plex-sans-arabic/arabic-600.css';
 import '@fontsource/ibm-plex-sans-arabic/arabic-700.css';
 import './style.css';
 import OrderForm from './OrderForm';
+import { dashboardMetrics, filterOrders } from './order-view';
 import { api, login, loginAgent, logout, money, orderNumber, orderTotal, session, type Actor, type AgentSummary, type Bootstrap, type Order, type OrderInput, type OrderStatus, type Package, type Settings } from './api';
 
 type View = 'overview' | 'orders' | 'shipping' | 'team' | 'settings';
@@ -42,30 +43,59 @@ function App() {
   const [toast, setToast] = useState('');
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<'all' | OrderStatus>('all');
+  const [refreshing, setRefreshing] = useState(false);
+  const [syncError, setSyncError] = useState('');
+  const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
+  const refreshRequest = useRef(0);
 
-  const refresh = async () => setData(await api<Bootstrap>('bootstrap'));
+  const refresh = async () => {
+    const requestId = ++refreshRequest.current;
+    setRefreshing(true);
+    try {
+      const next = await api<Bootstrap>('bootstrap');
+      if (requestId === refreshRequest.current) {
+        setData(next);
+        setSyncError('');
+        setLastSyncedAt(new Date());
+      }
+    } catch (error) {
+      if (requestId === refreshRequest.current) {
+        setSyncError(error instanceof Error ? error.message : 'تعذر تحديث الطلبات.');
+      }
+      throw error;
+    } finally {
+      if (requestId === refreshRequest.current) setRefreshing(false);
+    }
+  };
   useEffect(() => {
-    session().then(async (actor) => { setAuthenticated(Boolean(actor)); if (actor) await refresh(); }).catch(() => setAuthenticated(false));
+    session().then((actor) => {
+      setAuthenticated(Boolean(actor));
+      if (actor) {
+        setData((previous) => ({ ...previous, actor }));
+        void refresh().catch(() => {});
+      }
+    }).catch(() => setAuthenticated(false));
   }, []);
   useEffect(() => { if (!toast) return; const timer = window.setTimeout(() => setToast(''), 5000); return () => window.clearTimeout(timer); }, [toast]);
   useEffect(() => { if (!authenticated) return; const timer = window.setInterval(() => refresh().catch(() => {}), 60_000); return () => window.clearInterval(timer); }, [authenticated]);
   useEffect(() => { if (selected) setSelected(data.orders.find((o) => o.id === selected.id) || null); }, [data.orders]);
 
-  const metrics = useMemo(() => {
-    const active = data.orders.filter((o) => !['cancelled', 'returned'].includes(o.status));
-    const revenue = active.reduce((sum, o) => sum + orderTotal(o), 0);
-    const paid = active.reduce((sum, o) => sum + o.paid, 0);
-    return { total: data.orders.length, active: active.filter((o) => o.status !== 'delivered').length,
-      onWay: active.filter((o) => o.status === 'on_way').length, revenue, paid, due: Math.max(0, revenue - paid),
-      attention: data.orders.filter((o) => o.status === 'attention').length };
-  }, [data.orders]);
-  const visible = data.orders.filter((o) => (filter === 'all' || o.status === filter) &&
-    `${o.customer} ${o.phone} ${o.product} ${o.shipmentReference} ${orderNumber(o)}`.toLowerCase().includes(query.toLowerCase()));
+  const metrics = useMemo(() => dashboardMetrics(data.orders), [data.orders]);
+  const visible = useMemo(() => filterOrders(data.orders, filter, query), [data.orders, filter, query]);
 
   async function action<T>(task: () => Promise<T>, success?: string) {
     setBusy(true);
-    try { const result = await task(); await refresh(); if (success) setToast(success); return result; }
-    catch (error) { setToast(error instanceof Error ? error.message : 'تعذر تنفيذ العملية'); throw error; }
+    try {
+      const result = await task();
+      let refreshed = true;
+      try { await refresh(); } catch { refreshed = false; }
+      if (!refreshed) setToast('تم تنفيذ العملية، لكن القائمة لم تتحدّث. استخدم زر التحديث للتحقق من النتيجة.');
+      else if (success) setToast(success);
+      return result;
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : 'تعذر تنفيذ العملية');
+      throw error;
+    }
     finally { setBusy(false); }
   }
   async function create(input: OrderInput) {
@@ -81,7 +111,7 @@ function App() {
   const navigate = (next: View) => { setView(next); setMenuOpen(false); setFilter('all'); setQuery(''); };
 
   if (authenticated === null) return <div className="loading-screen"><span className="brand-mark"><Box size={27} /></span><div className="spinner" /><p>جاري تجهيز مساحة عملك…</p></div>;
-  if (!authenticated) return <Login onLogin={async (mode, token, username) => { if (mode === 'admin') await login(token); else await loginAgent(username, token); await refresh(); setAuthenticated(true); }} />;
+  if (!authenticated) return <Login onLogin={async (mode, token, username) => { if (mode === 'admin') await login(token); else await loginAgent(username, token); const actor = await session(); if (!actor) throw new Error('تعذر التحقق من الجلسة.'); setData((previous) => ({ ...previous, actor })); setAuthenticated(true); void refresh().catch(() => {}); }} />;
 
   return <div className="app-shell">
     {menuOpen && <button className="mobile-scrim" aria-label="إغلاق القائمة" onClick={() => setMenuOpen(false)} />}
@@ -97,13 +127,14 @@ function App() {
       </nav>
       <div className="sidebar-bottom">
         <div className="sidebar-tip"><Sparkles size={18} /><strong>كل شيء في مكان واحد</strong><span>من رسالة الزبون إلى وصول الطلب.</span></div>
-        <div className="sidebar-user"><span className="avatar">{data.actor.name.slice(0, 1)}</span><div><strong>{data.actor.name}</strong><small>{data.actor.role === 'admin' ? 'مدير المتجر' : 'مندوبة'}</small></div><button aria-label="تسجيل الخروج" title="تسجيل الخروج" onClick={async () => { await logout(); setAuthenticated(false); }}><LogOut size={18} /></button></div>
+        <div className="sidebar-user"><span className="avatar">{data.actor.name.slice(0, 1)}</span><div><strong>{data.actor.name}</strong><small>{data.actor.role === 'admin' ? 'مدير المتجر' : 'مندوبة'}</small></div><button aria-label="تسجيل الخروج" title="تسجيل الخروج" onClick={async () => { await logout(); refreshRequest.current += 1; setAuthenticated(false); }}><LogOut size={18} /></button></div>
       </div>
     </aside>
 
     <main className="main">
-      <header className="topbar"><div className="topbar-right"><button className="icon-button menu-button" aria-label="القائمة" onClick={() => setMenuOpen(true)}><Menu size={22} /></button><div className="breadcrumb">مساحة العمل <ChevronLeft size={15} /> <b>{view === 'overview' ? 'نظرة عامة' : view === 'orders' ? 'الطلبات' : view === 'shipping' ? 'الشحن والتوصيل' : view === 'team' ? 'المندوبات' : 'الإعدادات'}</b></div></div><div className="topbar-left"><span className="date-pill"><Clock3 size={15} />{today}</span><span className="top-avatar">{data.actor.name.slice(0, 1)}</span></div></header>
+      <header className="topbar"><div className="topbar-right"><button className="icon-button menu-button" aria-label="القائمة" onClick={() => setMenuOpen(true)}><Menu size={22} /></button><div className="breadcrumb">مساحة العمل <ChevronLeft size={15} /> <b>{view === 'overview' ? 'نظرة عامة' : view === 'orders' ? 'الطلبات' : view === 'shipping' ? 'الشحن والتوصيل' : view === 'team' ? 'المندوبات' : 'الإعدادات'}</b></div></div><div className="topbar-left"><span className={`sync-time ${syncError ? 'has-error' : ''}`} role="status">{syncError ? 'تعذر التحديث' : lastSyncedAt ? `آخر تحديث ${lastSyncedAt.toLocaleTimeString('ar-LY', { hour: 'numeric', minute: '2-digit' })}` : 'جاري تحميل البيانات'}</span><button type="button" className="sync-button" aria-label="تحديث الطلبات" title="تحديث الطلبات" disabled={refreshing} onClick={() => void refresh().catch(() => {})}><RefreshCw size={16} className={refreshing ? 'spin' : ''} /><span>تحديث</span></button><span className="date-pill"><Clock3 size={15} />{today}</span><span className="top-avatar">{data.actor.name.slice(0, 1)}</span></div></header>
       <div className="content">
+        {syncError && <div className="sync-warning" role="alert"><CircleAlert size={19} /><span>تعذر تحديث البيانات: {syncError}. قد تكون الأرقام قديمة.</span><button type="button" disabled={refreshing} onClick={() => void refresh().catch(() => {})}>إعادة المحاولة</button></div>}
         {view === 'overview' && <>
           <div className="hero"><div><div className="eyebrow"><span className="pulse-dot" /> مركز إدارة متجرك</div><h1>كل طلب، من أول رسالة<br /><em>حتى باب الزبون.</em></h1><p>تابع الطلبات والشحن والتحصيل من لوحة واحدة مرتبة وواضحة.</p><button className="btn light" onClick={() => setFormOpen(true)}><Plus size={19} /> إضافة طلب جديد <ArrowLeft size={18} /></button></div><div className="hero-visual" aria-hidden="true"><div className="hero-card floating-one"><span className="mini-icon"><PackageCheck size={19} /></span><div><strong>تم تأكيد الطلب</strong><small>الشحنة أُرسلت لدرب السبيل</small></div><Check size={18} /></div><div className="hero-card floating-two"><span className="mini-icon gold"><Send size={18} /></span><div><strong>الطلب في الطريق</strong><small>الزبون استلم التحديث</small></div><span className="waves">)))</span></div><div className="hero-orbit"><Box size={74} strokeWidth={1.1} /></div></div></div>
           {metrics.attention > 0 && <div className="notice attention"><CircleAlert size={20} /><span><strong>{metrics.attention} طلب يحتاج مراجعة</strong> — تأكد من حالة الشحنة في درب السبيل قبل إعادة المحاولة.</span><button onClick={() => navigate('orders')}>عرض الطلبات <ArrowLeft size={16} /></button></div>}
@@ -117,9 +148,9 @@ function App() {
           <div className="dashboard-grid"><div className="panel"><div className="panel-head"><div><span className="overline">آخر النشاط</span><h2>أحدث الطلبات</h2></div><button className="text-button" onClick={() => navigate('orders')}>عرض الكل <ArrowLeft size={16} /></button></div>{data.orders.length ? <OrderList orders={data.orders.slice(0, 5)} onSelect={setSelected} compact /> : <Empty title="هنا تبدأ حكاية أول طلب" description="أضف الطلب القادم من فيسبوك أو إنستغرام، والباقي علينا." onClick={() => setFormOpen(true)} />}</div><div className="panel flow-panel"><div className="panel-head"><div><span className="overline">سير العمل</span><h2>رحلة الطلب</h2></div></div><div className="flow-list"><FlowStep icon={ClipboardList} title="تسجيل الطلب" text="أدخل بيانات الزبون والمنتج" active /><FlowStep icon={Truck} title="إنشاء الشحنة" text="إرسال مباشر لدرب السبيل" active={Boolean(data.settings.serviceId)} /><FlowStep icon={MessageCircle} title="رسالة التأكيد" text="إشعار للزبون عبر رسالة" active={data.resalaConfigured} /><FlowStep icon={Send} title="في الطريق" text="تحديث تلقائي ورسالة ثانية" active={data.resalaConfigured} last /></div>{data.actor.role === 'admin' && <button className="flow-action" onClick={() => navigate('settings')}>إعدادات الربط <ArrowUpLeft size={17} /></button>}</div></div>
         </>}
 
-        {view === 'orders' && <><PageTitle overline="إدارة الطلبات" title="طلباتك كلها، بوضوح." description="من أول تواصل حتى التسليم، كل التفاصيل محفوظة هنا." action={() => setFormOpen(true)} /><div className="panel list-panel"><div className="list-toolbar">{data.actor.role === 'admin' && <button className="btn ghost" onClick={async () => { try { setTrash(await api<Order[]>('trash')); } catch { setToast('تعذر فتح المحذوفات'); } }}>المحذوفات</button>}<div className="search"><Search size={18} /><input placeholder="ابحث بالاسم أو الرقم أو المنتج…" value={query} onChange={(e) => setQuery(e.target.value)} /></div><span className="count-pill">{visible.length} طلب</span></div><div className="filters">{([['all', 'الكل'], ['confirmed', 'مؤكد'], ['on_way', 'في الطريق'], ['delivered', 'تم التسليم'], ['attention', 'يحتاج مراجعة']] as const).map(([key, label]) => <button key={key} className={filter === key ? 'selected' : ''} onClick={() => setFilter(key)}>{label}</button>)}</div>{visible.length ? <OrderList orders={visible} onSelect={setSelected} /> : <Empty title="ما فيش طلبات هنا بعد" description="جرّب فلترًا ثانيًا أو أضف طلب جديد." onClick={() => setFormOpen(true)} />}</div></>}
+        {view === 'orders' && <><PageTitle overline="إدارة الطلبات" title="طلباتك كلها، بوضوح." description="من أول تواصل حتى التسليم، كل التفاصيل محفوظة هنا." action={() => setFormOpen(true)} /><div className="panel list-panel"><div className="list-toolbar">{data.actor.role === 'admin' && <button className="btn ghost" onClick={async () => { try { setTrash(await api<Order[]>('trash')); } catch { setToast('تعذر فتح المحذوفات'); } }}>المحذوفات</button>}<div className="search"><Search size={18} /><input aria-label="بحث في الطلبات" placeholder="الاسم، الهاتف، المنطقة، المندوبة، رقم الشحنة…" value={query} onChange={(e) => setQuery(e.target.value)} /></div><span className="count-pill">{visible.length} طلب</span></div><div className="filters">{([['all', 'الكل'], ['creating', 'جاري الإنشاء'], ['confirmed', 'مؤكد'], ['on_way', 'في الطريق'], ['delivered', 'تم التسليم'], ['returned', 'مرتجع'], ['cancelled', 'ملغي'], ['attention', 'يحتاج مراجعة']] as const).map(([key, label]) => <button key={key} className={filter === key ? 'selected' : ''} onClick={() => setFilter(key)}>{label}</button>)}</div>{visible.length ? <OrderList orders={visible} onSelect={setSelected} /> : <Empty title={query.trim() || filter !== 'all' ? 'لا توجد طلبات مطابقة' : 'ما فيش طلبات هنا بعد'} description={query.trim() || filter !== 'all' ? 'جرّب تغيير البحث أو حالة الطلب.' : 'أضف أول طلب جديد.'} onClick={query.trim() || filter !== 'all' ? undefined : () => setFormOpen(true)} />}</div></>}
 
-        {view === 'shipping' && <><PageTitle overline="درب السبيل" title="كل شحنة تحت عينك." description="تتبّع الشحنات وتحديثات التوصيل في مكان واحد." /><div className="shipping-banner"><div className="shipping-logo"><Truck size={28} /></div><div><strong>الربط مع درب السبيل</strong><p>عند إضافة طلب جديد، تُنشأ شحنته مباشرة بعد التأكيد.</p></div><span className="connection-dot">متصل</span></div><div className="panel list-panel"><div className="panel-head"><div><span className="overline">شحناتك</span><h2>سجل التوصيل</h2></div></div>{data.orders.filter((o) => o.shipmentReference).length ? <OrderList orders={data.orders.filter((o) => o.shipmentReference)} onSelect={setSelected} /> : <Empty title="لا توجد شحنات بعد" description="أضف أول طلب ليظهر رقم التتبع وتحديثاته هنا." onClick={() => setFormOpen(true)} />}</div></>}
+        {view === 'shipping' && <><PageTitle overline="درب السبيل" title="كل شحنة تحت عينك." description="تتبّع الشحنات وتحديثات التوصيل في مكان واحد." /><div className="shipping-banner"><div className="shipping-logo"><Truck size={28} /></div><div><strong>الربط مع درب السبيل</strong><p>عند إضافة طلب جديد، تُنشأ شحنته مباشرة بعد التأكيد.</p></div><span className="connection-dot">تكامل الشحن</span></div><div className="panel list-panel"><div className="panel-head"><div><span className="overline">شحناتك</span><h2>سجل التوصيل</h2></div></div>{data.orders.filter((o) => o.shipmentReference).length ? <OrderList orders={data.orders.filter((o) => o.shipmentReference)} onSelect={setSelected} /> : <Empty title="لا توجد شحنات بعد" description="أضف أول طلب ليظهر رقم التتبع وتحديثاته هنا." onClick={() => setFormOpen(true)} />}</div></>}
 
         {view === 'team' && data.actor.role === 'admin' && <TeamPage agents={data.agents} busy={busy} run={action} />}
         {view === 'settings' && data.actor.role === 'admin' && <SettingsPage settings={data.settings} resalaConfigured={data.resalaConfigured} busy={busy} onSave={async (next) => { try { await action(() => api<Settings>('saveSettings', { settings: next }), 'تم حفظ الإعدادات'); } catch { /* toast */ } }} />}
@@ -202,7 +233,7 @@ function SettingsPage({ settings, resalaConfigured, busy, onSave }: { settings: 
   const [form, setForm] = useState(settings); const [packages, setPackages] = useState<Package[]>([]); const [loading, setLoading] = useState(false); const [error, setError] = useState('');
   useEffect(() => setForm(settings), [settings]);
   async function load() { setLoading(true); setError(''); try { setPackages(await api<Package[]>('packages')); } catch (err) { setError(err instanceof Error ? err.message : 'تعذر جلب الباقات'); } finally { setLoading(false); } }
-  return <><PageTitle overline="إعدادات الربط" title="اضبط عملك على مقاسك." description="اختر باقة التوصيل وتابع حالة اتصال الخدمات." /><div className="settings-grid"><section className="panel settings-panel"><div className="settings-head"><IconBox icon={Truck} /><div><h2>درب السبيل</h2><p>إنشاء الشحنات وتحديث حالتها تلقائيًا.</p></div><span className="connection-dot">متصل</span></div><div className="settings-rule" /><label className="settings-label">باقة التوصيل الافتراضية</label><p className="settings-help">تُستخدم مع كل طلب جديد. يمكنك تغييرها متى شئت.</p><button className="btn ghost" onClick={load} disabled={loading}><RefreshCw size={17} className={loading ? 'spin' : ''} />{loading ? 'جاري الجلب…' : 'جلب باقات التوصيل'}</button>{error && <div className="form-error">{error}</div>}{packages.length > 0 && <div className="package-options">{packages.map((item) => <button key={item._id} className={form.serviceId === item._id ? 'selected' : ''} onClick={() => setForm({ ...form, serviceId: item._id })}><span className="radio-circle">{form.serviceId === item._id && <Check size={13} />}</span><span>{item.title || item.name || item._id}</span></button>)}</div>}{form.serviceId && !packages.length && <div className="selected-package"><Check size={16} /> باقة محفوظة · {form.serviceId}</div>}<button className="btn primary settings-save" disabled={busy || !form.serviceId} onClick={() => onSave(form)}>حفظ الإعدادات <ArrowLeft size={17} /></button></section><section className="panel settings-panel"><div className="settings-head"><IconBox icon={MessageCircle} tone="blue" /><div><h2>رسالة SMS</h2><p>رسالتان تلقائيتان لطمأنة الزبون.</p></div><span className={`connection-dot ${resalaConfigured ? '' : 'offline'}`}>{resalaConfigured ? 'جاهز' : 'بانتظار القالبين'}</span></div><div className="settings-rule" /><div className="message-preview"><span className="message-step">01</span><div><strong>عند تأكيد الطلب</strong><p>«تم تأكيد طلبك… سنوافيك بتحديث التوصيل.»</p></div></div><div className="message-preview"><span className="message-step">02</span><div><strong>عندما يكون في الطريق</strong><p>«طلبك في طريقه إليك… رقم التتبع…»</p></div></div><label className="toggle-row"><span><strong>الرسائل التلقائية</strong><small>تُرسل من الخادم عند توفر ربط رسالة</small></span><input type="checkbox" checked={form.autoMessages} onChange={(e) => setForm({ ...form, autoMessages: e.target.checked })} /><i /></label>{!resalaConfigured && <div className="settings-warning"><CircleAlert size={18} /><span>يلزم إضافة مفتاح رسالة ومعرّفَي قالبَي التأكيد والطريق المعتمدين إلى إعدادات Cloudflare. الرسائل غير مرسلة حاليًا.</span></div>}</section></div><div className="security-note"><ShieldCheck size={19} /><span>مفاتيح درب السبيل ورسالة محفوظة على الخادم فقط. بيانات الطلبات متاحة بعد تسجيل الدخول برمزك الشخصي.</span></div></>;
+  return <><PageTitle overline="إعدادات الربط" title="اضبط عملك على مقاسك." description="اختر باقة التوصيل وتابع حالة اتصال الخدمات." /><div className="settings-grid"><section className="panel settings-panel"><div className="settings-head"><IconBox icon={Truck} /><div><h2>درب السبيل</h2><p>إنشاء الشحنات وتحديث حالتها تلقائيًا.</p></div><span className="connection-dot">تكامل الشحن</span></div><div className="settings-rule" /><label className="settings-label">باقة التوصيل الافتراضية</label><p className="settings-help">تُستخدم مع كل طلب جديد. يمكنك تغييرها متى شئت.</p><button className="btn ghost" onClick={load} disabled={loading}><RefreshCw size={17} className={loading ? 'spin' : ''} />{loading ? 'جاري الجلب…' : 'جلب باقات التوصيل'}</button>{error && <div className="form-error">{error}</div>}{packages.length > 0 && <div className="package-options">{packages.map((item) => <button key={item._id} className={form.serviceId === item._id ? 'selected' : ''} onClick={() => setForm({ ...form, serviceId: item._id })}><span className="radio-circle">{form.serviceId === item._id && <Check size={13} />}</span><span>{item.title || item.name || item._id}</span></button>)}</div>}{form.serviceId && !packages.length && <div className="selected-package"><Check size={16} /> باقة محفوظة · {form.serviceId}</div>}<button className="btn primary settings-save" disabled={busy || !form.serviceId} onClick={() => onSave(form)}>حفظ الإعدادات <ArrowLeft size={17} /></button></section><section className="panel settings-panel"><div className="settings-head"><IconBox icon={MessageCircle} tone="blue" /><div><h2>رسالة SMS</h2><p>رسالتان تلقائيتان لطمأنة الزبون.</p></div><span className={`connection-dot ${resalaConfigured ? '' : 'offline'}`}>{resalaConfigured ? 'جاهز' : 'بانتظار القالبين'}</span></div><div className="settings-rule" /><div className="message-preview"><span className="message-step">01</span><div><strong>عند تأكيد الطلب</strong><p>«تم تأكيد طلبك… سنوافيك بتحديث التوصيل.»</p></div></div><div className="message-preview"><span className="message-step">02</span><div><strong>عندما يكون في الطريق</strong><p>«طلبك في طريقه إليك… رقم التتبع…»</p></div></div><label className="toggle-row"><span><strong>الرسائل التلقائية</strong><small>تُرسل من الخادم عند توفر ربط رسالة</small></span><input type="checkbox" checked={form.autoMessages} onChange={(e) => setForm({ ...form, autoMessages: e.target.checked })} /><i /></label>{!resalaConfigured && <div className="settings-warning"><CircleAlert size={18} /><span>يلزم إضافة مفتاح رسالة ومعرّفَي قالبَي التأكيد والطريق المعتمدين إلى إعدادات Cloudflare. الرسائل غير مرسلة حاليًا.</span></div>}</section></div><div className="security-note"><ShieldCheck size={19} /><span>مفاتيح درب السبيل ورسالة محفوظة على الخادم فقط. بيانات الطلبات متاحة بعد تسجيل الدخول برمزك الشخصي.</span></div></>;
 }
 
 createRoot(document.getElementById('root')!).render(<App />);
