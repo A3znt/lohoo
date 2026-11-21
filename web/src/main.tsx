@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
   ArrowDownLeft, ArrowLeft, ArrowUpLeft, Bell, Box, Check, CheckCheck, ChevronLeft,
-  Camera, CircleAlert, ClipboardList, Clock3, CreditCard, LayoutDashboard,
+  Camera, CircleAlert, ClipboardList, Clock3, CreditCard, Download, LayoutDashboard,
   LockKeyhole, LogOut, Menu, MessageCircle, PackageCheck, Plus, RefreshCw, Search,
   Send, Settings2, ShieldCheck, Sparkles, Truck, Users, Wallet, X,
 } from 'lucide-react';
@@ -14,8 +14,10 @@ import '@fontsource/ibm-plex-sans-arabic/arabic-700.css';
 import './style.css';
 import './aurora-theme.css';
 import OrderForm from './OrderForm';
-import { dashboardMetrics, filterOrders, weeklyOrderActivity } from './order-view';
-import { api, login, loginAgent, logout, money, orderNumber, orderTotal, session, type Actor, type AgentSummary, type Bootstrap, type Order, type OrderInput, type OrderStatus, type Package, type Settings } from './api';
+import CopyButton from './CopyButton';
+import { exportOrdersCsv } from './order-export.mjs';
+import { dashboardMetrics, filterOrders, sortOrders, weeklyOrderActivity, type OrderSort } from './order-view';
+import { ApiError, api, login, loginAgent, logout, money, orderNumber, orderTotal, session, type Actor, type AgentSummary, type Bootstrap, type Order, type OrderInput, type OrderStatus, type Package, type Settings } from './api';
 
 type View = 'overview' | 'orders' | 'shipping' | 'team' | 'settings';
 const statusText: Record<OrderStatus, string> = {
@@ -33,6 +35,7 @@ function Empty({ title, description, onClick }: { title: string; description: st
 
 function App() {
   const [authenticated, setAuthenticated] = useState<boolean | null>(null);
+  const [authError, setAuthError] = useState('');
   const [data, setData] = useState<Bootstrap>({ actor: { role: 'admin', id: 'admin', name: 'المدير' }, orders: [], settings: { serviceId: '', autoMessages: true }, resalaConfigured: false, agents: [], commission: { assigned: 0, delivered: 0, earned: 0, paid: 0, due: 0 } });
   const [view, setView] = useState<View>('overview');
   const [selected, setSelected] = useState<Order | null>(null);
@@ -44,6 +47,10 @@ function App() {
   const [toast, setToast] = useState('');
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<'all' | OrderStatus>('all');
+  const [sort, setSort] = useState<OrderSort>('newest');
+  const [visibleLimit, setVisibleLimit] = useState(30);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const focusSearchAfterNavigation = useRef(false);
   const [refreshing, setRefreshing] = useState(false);
   const [syncError, setSyncError] = useState('');
   const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
@@ -61,31 +68,72 @@ function App() {
       }
     } catch (error) {
       if (requestId === refreshRequest.current) {
-        setSyncError(error instanceof Error ? error.message : 'تعذر تحديث الطلبات.');
+        if (error instanceof ApiError && error.status === 401) {
+          setAuthenticated(false);
+          setSelected(null);
+          setEditing(null);
+          setFormOpen(false);
+        } else {
+          setSyncError(error instanceof Error ? error.message : 'تعذر تحديث الطلبات.');
+        }
       }
       throw error;
     } finally {
       if (requestId === refreshRequest.current) setRefreshing(false);
     }
   };
-  useEffect(() => {
-    session().then((actor) => {
+  async function checkSession() {
+    setAuthError('');
+    try {
+      const actor = await session();
       setAuthenticated(Boolean(actor));
       if (actor) {
         setData((previous) => ({ ...previous, actor }));
         void refresh().catch(() => {});
       }
-    }).catch(() => setAuthenticated(false));
-  }, []);
+    } catch (error) {
+      setAuthError(error instanceof Error ? error.message : 'تعذر التحقق من الجلسة.');
+    }
+  }
+  useEffect(() => { void checkSession(); }, []);
   useEffect(() => { if (!toast) return; const timer = window.setTimeout(() => setToast(''), 5000); return () => window.clearTimeout(timer); }, [toast]);
   useEffect(() => { if (!authenticated) return; const timer = window.setInterval(() => refresh().catch(() => {}), 60_000); return () => window.clearInterval(timer); }, [authenticated]);
   useEffect(() => { if (selected) setSelected(data.orders.find((o) => o.id === selected.id) || null); }, [data.orders]);
+  useEffect(() => { setVisibleLimit(30); }, [filter, query, sort, view]);
+  useEffect(() => {
+    if (view === 'orders' && focusSearchAfterNavigation.current) {
+      searchInputRef.current?.focus();
+      focusSearchAfterNavigation.current = false;
+    }
+  }, [view]);
+  useEffect(() => {
+    if (!authenticated) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target;
+      const isTyping = target instanceof HTMLElement &&
+        (target.matches('input,textarea,select') || target.isContentEditable);
+      const commandSearch = (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k';
+      if ((commandSearch || (event.key === '/' && !isTyping && !event.ctrlKey && !event.metaKey)) &&
+          !formOpen && !selected && !editing && !trash) {
+        event.preventDefault();
+        if (view === 'orders') searchInputRef.current?.focus();
+        else {
+          focusSearchAfterNavigation.current = true;
+          setView('orders');
+          setMenuOpen(false);
+        }
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [authenticated, formOpen, selected, editing, trash, view]);
 
   const metrics = useMemo(() => dashboardMetrics(data.orders), [data.orders]);
   const weeklyActivity = useMemo(() => weeklyOrderActivity(data.orders), [data.orders]);
   const weekTotal = weeklyActivity.reduce((total, day) => total + day.count, 0);
   const weekPeak = Math.max(1, ...weeklyActivity.map((day) => day.count));
-  const visible = useMemo(() => filterOrders(data.orders, filter, query), [data.orders, filter, query]);
+  const visible = useMemo(() => sortOrders(filterOrders(data.orders, filter, query), sort), [data.orders, filter, query, sort]);
+  const shippingOrders = useMemo(() => sortOrders(filterOrders(data.orders.filter((o) => o.shipmentReference), 'all', query), sort), [data.orders, query, sort]);
 
   async function action<T>(task: () => Promise<T>, success?: string) {
     setBusy(true);
@@ -104,17 +152,29 @@ function App() {
   }
   async function create(input: OrderInput) {
     try {
-      const result = await action(() => api<Order>('createOrder', { order: input }));
+      const result = await action(() => api<Order>('createOrder', { order: input }), 'تم حفظ الطلب، افتح التفاصيل لمراجعة حالة الشحنة.');
       setFormOpen(false); setSelected(result || null);
-      setToast(result?.status === 'confirmed' ? 'تم إنشاء الشحنة وتأكيد الطلب بنجاح' : 'حُفظ الطلب، ويحتاج مراجعة حالة الشحنة');
     } catch { /* toast explains the error */ }
   }
   async function update(id: string, patch: Record<string, unknown>, success: string) {
     try { await action(() => api<Order>('updateOrder', { id, ...patch }), success); } catch { /* toast explains the error */ }
   }
-  const navigate = (next: View) => { setView(next); setMenuOpen(false); setFilter('all'); setQuery(''); };
+  const navigate = (next: View) => { setView(next); setMenuOpen(false); setFilter('all'); setQuery(''); setVisibleLimit(30); };
+  function downloadOrders(orders: Order[]) {
+    if (!orders.length) return;
+    const csv = exportOrdersCsv(orders.map((order) => ({ ...order, exportNumber: orderNumber(order) })));
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `lohoo-orders-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    setToast(`تم تجهيز ملف CSV لعدد ${orders.length} طلب.`);
+  }
 
-  if (authenticated === null) return <div className="loading-screen"><span className="brand-mark"><Box size={27} /></span><div className="spinner" /><p>جاري تجهيز مساحة عملك…</p></div>;
+  if (authenticated === null) return <div className="loading-screen"><span className="brand-mark"><Box size={27} /></span>{authError ? <><CircleAlert size={24} /><p role="alert">{authError}</p><button className="btn primary" onClick={() => void checkSession()}>إعادة المحاولة</button></> : <><div className="spinner" /><p>جاري تجهيز مساحة عملك…</p></>}</div>;
   if (!authenticated) return <Login onLogin={async (mode, token, username) => { if (mode === 'admin') await login(token); else await loginAgent(username, token); const actor = await session(); if (!actor) throw new Error('تعذر التحقق من الجلسة.'); setData((previous) => ({ ...previous, actor })); setAuthenticated(true); void refresh().catch(() => {}); }} />;
 
   return <div className="app-shell">
