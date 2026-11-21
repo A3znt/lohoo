@@ -62,3 +62,12 @@ test('account changes clear sensitive in-memory orders and invalidate old refres
   assert.match(source, /setData\(emptyBootstrap\(actor\)\)/);
   assert.match(source, /await logout\(\); clearSessionData\(\)/);
 });
+
+test('shipping list exposes direct tracking copy and a user-initiated telephone action', async () => {
+  const source = await read('web/src/main.tsx');
+  assert.match(source, /showTracking && order\.shipmentReference/);
+  assert.match(source, /value=\{order\.shipmentReference\} label="رقم التتبع" compact/);
+  assert.match(source, /<OrderList orders=\{shippingOrders\.slice\(0, visibleLimit\)\} onSelect=\{setSelected\} showTracking/);
+  assert.match(source, /href=\{`tel:\+\$\{order\.phone\.replace/);
+  assert.match(source, /URL\.revokeObjectURL\(objectUrl\)/);
+});
