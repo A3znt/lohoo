@@ -536,3 +536,9 @@ button{-webkit-tap-highlight-color:transparent}
   .sort-control select{padding:8px 6px}
   .detail-value{gap:5px!important}
 }
+/* Validation hints and consistent loading affordances. */
+.field-hint-error{display:block;color:#b94e50;font-size:11px;line-height:1.7;padding:5px 2px}
+.field input[aria-invalid="true"]{border-color:#da7676;background:#fffafb}
+.loading-screen{background:radial-gradient(circle at 50% 25%,#d6e9ff,transparent 50%),#eaf1fd;color:#395984;min-height:100dvh;height:auto;padding:20px}
+.loading-screen .brand-mark{box-shadow:0 12px 30px rgba(34,116,233,.22)}
+.initial-data-loading .spinner{border-color:#d9e9ff;border-top-color:#3699ee}
