@@ -50,3 +50,15 @@ test('failed session bootstrap does not show false zero totals and form rejects 
   assert.match(api, /class ApiError extends Error/);
   assert.match(api, /result\.error \|\|/);
 });
+
+test('account changes clear sensitive in-memory orders and invalidate old refreshes', async () => {
+  const source = await read('web/src/main.tsx');
+  assert.match(source, /function clearSessionData\(\)/);
+  assert.match(source, /refreshRequest\.current \+= 1;/);
+  assert.match(source, /setData\(emptyBootstrap\(\)\)/);
+  assert.match(source, /setLastSyncedAt\(null\)/);
+  assert.match(source, /setSelected\(null\)/);
+  assert.match(source, /setAuthenticated\(false\)/);
+  assert.match(source, /setData\(emptyBootstrap\(actor\)\)/);
+  assert.match(source, /await logout\(\); clearSessionData\(\)/);
+});
