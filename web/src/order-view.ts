@@ -28,3 +28,29 @@ export function filterOrders(orders: readonly Order[], status: 'all' | OrderStat
     return searchable.filter(Boolean).join(' ').toLocaleLowerCase().includes(needle);
   });
 }
+
+export interface DayActivity { label: string; count: number }
+
+/**
+ * Return the previous seven local calendar days, including today.
+ * Counts only orders actually present in the signed-in user's bootstrap data.
+ */
+export function weeklyOrderActivity(orders: readonly Pick<Order, 'createdAt'>[], now = new Date()): DayActivity[] {
+  const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const formatter = new Intl.DateTimeFormat('ar-LY', { weekday: 'short' });
+  return Array.from({ length: 7 }, (_, index) => {
+    const start = new Date(midnight);
+    start.setDate(midnight.getDate() - 6 + index);
+    const end = new Date(start);
+    end.setDate(start.getDate() + 1);
+    const from = start.getTime();
+    const to = end.getTime();
+    return {
+      label: formatter.format(start),
+      count: orders.reduce((total, order) => {
+        const created = Date.parse(order.createdAt);
+        return total + (Number.isFinite(created) && created >= from && created < to ? 1 : 0);
+      }, 0),
+    };
+  });
+}

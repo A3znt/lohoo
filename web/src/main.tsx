@@ -12,9 +12,9 @@ import '@fontsource/ibm-plex-sans-arabic/arabic-500.css';
 import '@fontsource/ibm-plex-sans-arabic/arabic-600.css';
 import '@fontsource/ibm-plex-sans-arabic/arabic-700.css';
 import './style.css';
-import './apple-theme.css';
+import './aurora-theme.css';
 import OrderForm from './OrderForm';
-import { dashboardMetrics, filterOrders } from './order-view';
+import { dashboardMetrics, filterOrders, weeklyOrderActivity } from './order-view';
 import { api, login, loginAgent, logout, money, orderNumber, orderTotal, session, type Actor, type AgentSummary, type Bootstrap, type Order, type OrderInput, type OrderStatus, type Package, type Settings } from './api';
 
 type View = 'overview' | 'orders' | 'shipping' | 'team' | 'settings';
@@ -82,6 +82,9 @@ function App() {
   useEffect(() => { if (selected) setSelected(data.orders.find((o) => o.id === selected.id) || null); }, [data.orders]);
 
   const metrics = useMemo(() => dashboardMetrics(data.orders), [data.orders]);
+  const weeklyActivity = useMemo(() => weeklyOrderActivity(data.orders), [data.orders]);
+  const weekTotal = weeklyActivity.reduce((total, day) => total + day.count, 0);
+  const weekPeak = Math.max(1, ...weeklyActivity.map((day) => day.count));
   const visible = useMemo(() => filterOrders(data.orders, filter, query), [data.orders, filter, query]);
 
   async function action<T>(task: () => Promise<T>, success?: string) {
@@ -137,7 +140,7 @@ function App() {
       <div className="content">
         {syncError && <div className="sync-warning" role="alert"><CircleAlert size={19} /><span>تعذر تحديث البيانات: {syncError}. قد تكون الأرقام قديمة.</span><button type="button" disabled={refreshing} onClick={() => void refresh().catch(() => {})}>إعادة المحاولة</button></div>}
         {view === 'overview' && <>
-          <div className="hero"><div><div className="eyebrow"><span className="pulse-dot" /> مركز إدارة متجرك</div><h1>كل طلب، من أول رسالة<br /><em>حتى باب الزبون.</em></h1><p>تابع الطلبات والشحن والتحصيل من لوحة واحدة مرتبة وواضحة.</p><button className="btn light" onClick={() => setFormOpen(true)}><Plus size={19} /> إضافة طلب جديد <ArrowLeft size={18} /></button></div><div className="hero-visual" aria-hidden="true"><div className="hero-card floating-one"><span className="mini-icon"><PackageCheck size={19} /></span><div><strong>تم تأكيد الطلب</strong><small>الشحنة أُرسلت لدرب السبيل</small></div><Check size={18} /></div><div className="hero-card floating-two"><span className="mini-icon gold"><Send size={18} /></span><div><strong>الطلب في الطريق</strong><small>الزبون استلم التحديث</small></div><span className="waves">)))</span></div><div className="hero-orbit"><Box size={74} strokeWidth={1.1} /></div></div></div>
+          <div className="hero"><div><div className="eyebrow"><span className="pulse-dot" /> مركز إدارة متجرك</div><h1>كل طلب، من أول رسالة<br /><em>حتى باب الزبون.</em></h1><p>تابع الطلبات والشحن والتحصيل من لوحة واحدة مرتبة وواضحة.</p><button className="btn light" onClick={() => setFormOpen(true)}><Plus size={19} /> إضافة طلب جديد <ArrowLeft size={18} /></button></div><div className="hero-visual" aria-hidden="true"><span className="holo-ring" /><span className="holo-spark" /><span className="holo-spark second" /><div className="hero-card floating-one"><span className="mini-icon"><PackageCheck size={19} /></span><div><strong>متابعة الطلبات</strong><small>من التسجيل إلى التسليم</small></div><Check size={18} /></div><div className="hero-card floating-two"><span className="mini-icon gold"><Send size={18} /></span><div><strong>تحديث الشحنات</strong><small>التتبع والإشعارات في مكان واحد</small></div><span className="waves">✦</span></div><div className="hero-orbit"><Box size={74} strokeWidth={1.1} /></div></div></div>
           {metrics.attention > 0 && <div className="notice attention"><CircleAlert size={20} /><span><strong>{metrics.attention} طلب يحتاج مراجعة</strong> — تأكد من حالة الشحنة في درب السبيل قبل إعادة المحاولة.</span><button onClick={() => navigate('orders')}>عرض الطلبات <ArrowLeft size={16} /></button></div>}
           {data.actor.role === 'admin' && !data.resalaConfigured && <div className="notice"><MessageCircle size={20} /><span><strong>رسائل الزبائن تنتظر قوالب رسالة.</strong> أضف معرّفَي القالبين المعتمدين على الخادم لتبدأ الرسائل التلقائية.</span><button onClick={() => navigate('settings')}>التفاصيل <ArrowLeft size={16} /></button></div>}
           <div className="section-heading"><div><span className="overline">ملخص اليوم</span><h2>أرقامك بنظرة واحدة</h2></div><span className="muted">تتحدث تلقائيًا مع كل طلب</span></div>
@@ -146,6 +149,12 @@ function App() {
             <Metric icon={Truck} label="طلبات في الطريق" value={String(metrics.onWay)} note="مع درب السبيل" tone="blue" />
             {data.actor.role === 'admin' ? <><Metric icon={CreditCard} label="قيمة الطلبات" value={money(metrics.revenue)} note="باستثناء المرتجع والملغي" tone="amber" /><Metric icon={ArrowDownLeft} label="المتبقي للتحصيل" value={money(metrics.due)} note={`${money(metrics.paid)} تم تحصيلها`} tone="rose" /></> : <><Metric icon={Wallet} label="عمولتي المستحقة" value={money(data.commission.earned)} note="15 د.ل بعد التسليم لكل طلب" tone="amber" /><Metric icon={ArrowDownLeft} label="المتبقي لي" value={money(data.commission.due)} note={`${money(data.commission.paid)} تم صرفها`} tone="rose" /></>}
           </div>
+          <section className="insights-panel" aria-labelledby="activity-title">
+            <div className="insights-copy"><span className="insights-kicker"><Sparkles size={16} /> نظرة على النشاط</span><h2 id="activity-title">حركة الطلبات</h2><p>عدد الطلبات المسجلة خلال آخر سبعة أيام حسب توقيت جهازك.</p><div className="insights-number"><strong>{weekTotal}</strong><small>طلب خلال ٧ أيام</small></div></div>
+            <div className="activity-chart" role="img" aria-label={`نشاط الطلبات خلال الأسبوع: ${weeklyActivity.map((day) => `${day.label}: ${day.count} طلب`).join('، ')}`}>
+              {weeklyActivity.map((day, index) => <div className="activity-day" key={index}><span className="activity-count">{day.count}</span><div className="activity-track"><div className={`activity-bar ${day.count === 0 ? 'is-zero' : ''}`} style={{ height: `${Math.max(0, Math.round(day.count / weekPeak * 100))}%` }} /></div><span className="activity-day-label">{day.label}</span></div>)}
+            </div>
+          </section>
           <div className="dashboard-grid"><div className="panel"><div className="panel-head"><div><span className="overline">آخر النشاط</span><h2>أحدث الطلبات</h2></div><button className="text-button" onClick={() => navigate('orders')}>عرض الكل <ArrowLeft size={16} /></button></div>{data.orders.length ? <OrderList orders={data.orders.slice(0, 5)} onSelect={setSelected} compact /> : <Empty title="هنا تبدأ حكاية أول طلب" description="أضف الطلب القادم من فيسبوك أو إنستغرام، والباقي علينا." onClick={() => setFormOpen(true)} />}</div><div className="panel flow-panel"><div className="panel-head"><div><span className="overline">سير العمل</span><h2>رحلة الطلب</h2></div></div><div className="flow-list"><FlowStep icon={ClipboardList} title="تسجيل الطلب" text="أدخل بيانات الزبون والمنتج" active /><FlowStep icon={Truck} title="إنشاء الشحنة" text="إرسال مباشر لدرب السبيل" active={Boolean(data.settings.serviceId)} /><FlowStep icon={MessageCircle} title="رسالة التأكيد" text="إشعار للزبون عبر رسالة" active={data.resalaConfigured} /><FlowStep icon={Send} title="في الطريق" text="تحديث تلقائي ورسالة ثانية" active={data.resalaConfigured} last /></div>{data.actor.role === 'admin' && <button className="flow-action" onClick={() => navigate('settings')}>إعدادات الربط <ArrowUpLeft size={17} /></button>}</div></div>
         </>}
 
