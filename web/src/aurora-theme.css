@@ -455,3 +455,20 @@ button{-webkit-tap-highlight-color:transparent}
     scroll-behavior:auto!important;
   }
 }
+
+/* Keep an atmospheric glass object visible in the mobile hero, without covering controls. */
+@media(max-width:800px){
+  .hero>div:first-child{position:relative;z-index:2}
+  .hero-visual{
+    display:block;position:absolute;inset:auto -68px -93px auto;
+    width:230px;min-width:0;height:230px;min-height:0;
+    opacity:.4;pointer-events:none;z-index:0;
+  }
+  .hero-visual .hero-card{display:none}
+  .hero-visual .hero-orbit{left:23px;top:16px;width:185px;height:185px}
+  .hero-visual .holo-ring{left:8px;top:5px}
+  .hero-visual .holo-spark{right:22%;top:21%}
+}
+@media(max-width:420px){
+  .hero-visual{opacity:.3;right:-83px;bottom:-106px}
+}
