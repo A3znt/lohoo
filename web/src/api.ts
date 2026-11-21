@@ -56,8 +56,9 @@ async function requestJson(url: string, options: RequestInit): Promise<ApiRespon
     throw new ApiError('الاستجابة من الخادم غير صحيحة.', response.status);
   }
   if (!response.ok || result.ok !== true) {
-    const message = response.status === 401 ? 'انتهت الجلسة، سجّل الدخول مجددًا.'
-      : result.error || `تعذر تنفيذ الطلب (HTTP ${response.status}).`;
+    const message = result.error || (response.status === 401
+      ? 'انتهت الجلسة، سجّل الدخول مجددًا.'
+      : `تعذر تنفيذ الطلب (HTTP ${response.status}).`);
     throw new ApiError(message, response.status);
   }
   return result;
