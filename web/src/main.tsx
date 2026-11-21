@@ -342,15 +342,11 @@ function OrderList({ orders, onSelect, compact = false, showTracking = false }: 
   return <div className={`order-list ${compact ? 'compact' : ''}`}>
     <div className="table-head"><span>الزبون / الطلب</span><span>المصدر</span><span>التاريخ</span><span>القيمة</span><span>الحالة</span><span /></div>
     {orders.map((order) => <div
-      className="order-row" role="button" tabIndex={0} key={order.id}
-      aria-label={`فتح الطلب ${orderNumber(order)} للزبون ${order.customer}`}
-      onClick={() => onSelect(order)}
-      onKeyDown={(event) => {
-        if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) {
-          event.preventDefault(); onSelect(order);
-        }
-      }}
+      className="order-row" role="group" key={order.id}
+      aria-label={`طلب رقم ${orderNumber(order)} للزبون ${order.customer}`}
     >
+      <button type="button" className="row-open-action" onClick={() => onSelect(order)}
+        aria-label={`فتح الطلب ${orderNumber(order)} للزبون ${order.customer}`} />
       <div className="order-customer"><span className="customer-avatar">{order.customer.slice(0, 1)}</span><span>
         <strong>{order.customer}</strong>
         <span className="order-id-line"><small>طلب رقم <b dir="ltr">{orderNumber(order)}</b></small><CopyButton value={orderNumber(order)} label="رقم الطلب" compact /></span>
