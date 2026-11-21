@@ -542,3 +542,21 @@ button{-webkit-tap-highlight-color:transparent}
 .loading-screen{background:radial-gradient(circle at 50% 25%,#d6e9ff,transparent 50%),#eaf1fd;color:#395984;min-height:100dvh;height:auto;padding:20px}
 .loading-screen .brand-mark{box-shadow:0 12px 30px rgba(34,116,233,.22)}
 .initial-data-loading .spinner{border-color:#d9e9ff;border-top-color:#3699ee}
+
+/* Carrier tracking and explicit phone action, even on narrow screens. */
+.row-tracking{display:flex!important;align-items:center;gap:7px;margin-top:3px;min-width:0}
+.row-tracking small{display:inline-flex;gap:5px;align-items:center;font-size:10px;color:#5477ad}
+.row-tracking b{font-size:11px;direction:ltr;unicode-bidi:isolate;color:#2468c4;font-weight:750}
+.row-tracking .copy-button{width:27px;min-width:27px;height:27px;min-height:27px;padding:0;border-radius:8px}
+.row-tracking .copy-button svg{width:13px;height:13px}
+.phone-call-link{
+  display:inline-flex;align-items:center;gap:7px;margin:9px 0 13px;padding:9px 13px;
+  width:max-content;min-height:37px;border:1px solid #9dc8f8;border-radius:11px;
+  background:#e8f4ff;color:#286dbb;font-size:11px;font-weight:750;text-decoration:none;
+}
+.phone-call-link:hover{background:#d8ecff;color:#1e59a6}
+.phone-call-link:focus-visible{outline:3px solid #6cbaff;outline-offset:2px}
+@media(max-width:620px){
+  .row-tracking b{font-size:10px}
+  .row-tracking .copy-button{width:30px;min-width:30px;height:30px;min-height:30px}
+}
