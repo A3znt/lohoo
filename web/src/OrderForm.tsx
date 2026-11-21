@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, Box, Check, CircleAlert, RefreshCw, Truck, X } from 'lucide-react';
 import { api, money, orderTotal, type Actor, type AgentSummary, type OrderInput, type Package, type WarehouseProduct } from './api';
 
@@ -17,6 +17,8 @@ export default function OrderForm({ initial, onClose, onCreate, busy, defaultSer
   const [quoteError, setQuoteError] = useState('');
   const [quoting, setQuoting] = useState(false);
   const [confirm, setConfirm] = useState(false);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => { closeButtonRef.current?.focus(); }, []);
   const [areaQuery, setAreaQuery] = useState('');
   const [quoteAttempt, setQuoteAttempt] = useState(0);
   const set = <K extends keyof OrderInput>(key: K, value: OrderInput[K]) => setForm((old) => ({ ...old, [key]: value }));
@@ -75,7 +77,7 @@ export default function OrderForm({ initial, onClose, onCreate, busy, defaultSer
   }
   const total = orderTotal({ ...form, deliveryFee: quote?.deliveryFee || 0 });
   return <div className="drawer-layer"><button className="drawer-scrim" aria-label="إغلاق" onClick={onClose} /><section className="drawer form-drawer" role="dialog" aria-modal="true" aria-label={initial ? 'تعديل الطلب' : 'إنشاء طلب جديد'}>
-    <div className="drawer-head"><div><span className="overline">طلب جديد · درب السبيل</span><h2>{initial ? 'تعديل الطلب' : 'إنشاء شحنة'}</h2></div><button className="icon-button" onClick={onClose} aria-label="إغلاق"><X size={21} /></button></div>
+    <div className="drawer-head"><div><span className="overline">طلب جديد · درب السبيل</span><h2>{initial ? 'تعديل الطلب' : 'إنشاء شحنة'}</h2></div><button ref={closeButtonRef} className="icon-button" onClick={onClose} aria-label="إغلاق"><X size={21} /></button></div>
     <div className="drawer-body order-form-new">
       {loadError && <div className="form-error"><CircleAlert size={18} />{loadError}<button className="btn ghost" onClick={loadDarb}>إعادة المحاولة</button></div>}
       {loading && <div className="form-loading"><RefreshCw size={18} className="spin" /> نجلب المنتجات والأماكن والخدمات من درب السبيل…</div>}
