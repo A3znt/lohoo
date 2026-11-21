@@ -71,3 +71,19 @@ test('shipping list exposes direct tracking copy and a user-initiated telephone 
   assert.match(source, /href=\{`tel:\+\$\{order\.phone\.replace/);
   assert.match(source, /URL\.revokeObjectURL\(objectUrl\)/);
 });
+
+test('dialogs and keyboard users have focus, Escape, and skip-to-content affordances', async () => {
+  const [main, form, theme] = await Promise.all([
+    read('web/src/main.tsx'), read('web/src/OrderForm.tsx'), read('web/src/aurora-theme.css'),
+  ]);
+  assert.match(main, /className="skip-link" href="#lohoo-main"/);
+  assert.match(main, /id="lohoo-main"/);
+  assert.match(main, /event\.key !== 'Escape'/);
+  assert.match(main, /aria-modal="true" aria-label=\{`تفاصيل الطلب/);
+  assert.match(main, /closeButtonRef\.current\?\.focus\(\)/);
+  assert.match(main, /aria-pressed=\{mode === 'admin'\}/);
+  assert.match(form, /role="dialog" aria-modal="true"/);
+  assert.match(form, /aria-pressed=\{form\.source === 'facebook'\}/);
+  assert.match(form, /closeButtonRef\.current\?\.focus\(\)/);
+  assert.match(theme, /\.skip-link:focus/);
+});
