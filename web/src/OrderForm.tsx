@@ -40,8 +40,14 @@ export default function OrderForm({ initial, onClose, onCreate, busy, defaultSer
     warehouseVariantId: form.warehouseVariantId, quantity: form.quantity, unitPrice: form.unitPrice,
     serviceId: form.serviceId }), [form.customer, form.phone, form.city, form.area, form.address, form.product,
     form.warehouseProductId, form.warehouseVariantId, form.quantity, form.unitPrice, form.serviceId]);
-  const ready = Boolean(form.customer.trim() && form.phone.trim() && form.city && form.area && form.address.trim() &&
-    form.warehouseProductId && form.warehouseVariantId && form.serviceId && form.quantity >= 1 && !loading && !loadError);
+  const normalizedPhone = form.phone.replace(/[\s()+-]/g, '');
+  const phoneValid = /^(?:0|218)(?:91|92|93|94)\d{7}$/.test(normalizedPhone);
+  const amountValid = [form.unitPrice, form.paid].every((number) =>
+    Number.isFinite(number) && number >= 0 && number <= 10000000);
+  const quantityValid = Number.isInteger(form.quantity) && form.quantity >= 1 && form.quantity <= 10000;
+  const ready = Boolean(form.customer.trim() && phoneValid && form.city && form.area && form.address.trim() &&
+    form.warehouseProductId && form.warehouseVariantId && form.serviceId &&
+    quantityValid && amountValid && !loading && !loadError);
   useEffect(() => {
     setQuote(null); setQuoteError('');
     if (!ready) { setQuoting(false); return; }
@@ -75,7 +81,7 @@ export default function OrderForm({ initial, onClose, onCreate, busy, defaultSer
       {loading && <div className="form-loading"><RefreshCw size={18} className="spin" /> نجلب المنتجات والأماكن والخدمات من درب السبيل…</div>}
       <div className="form-section-title"><span>01</span><div><strong>الزبون والمصدر</strong><small>بيانات الطلب من محادثتك</small></div></div>
       <div className="source-picker"><button type="button" className={form.source === 'facebook' ? 'selected' : ''} onClick={() => set('source', 'facebook')}>فيسبوك</button><button type="button" className={form.source === 'instagram' ? 'selected' : ''} onClick={() => set('source', 'instagram')}>إنستغرام</button></div>
-      <div className="field-grid"><label className="field">اسم الزبون<input value={form.customer} onChange={(e) => set('customer', e.target.value)} placeholder="الاسم الكامل" /></label><label className="field">رقم الهاتف<input value={form.phone} onChange={(e) => set('phone', e.target.value)} placeholder="0912345678" type="tel" dir="ltr" /></label></div>
+      <div className="field-grid"><label className="field">اسم الزبون<input value={form.customer} onChange={(e) => set('customer', e.target.value)} placeholder="الاسم الكامل" /></label><label className="field">رقم الهاتف<input value={form.phone} onChange={(e) => set('phone', e.target.value)} placeholder="0912345678" type="tel" inputMode="tel" autoComplete="tel" dir="ltr" aria-invalid={Boolean(form.phone.trim() && !phoneValid)} />{form.phone.trim() && !phoneValid && <small className="field-hint-error">أدخل رقمًا ليبيًا مثل 0912345678 أو +218912345678</small>}</label></div>
       {!initial && actor.role === 'admin' && <label className="field">المندوبة<select value={form.agentId || ''} onChange={(e) => set('agentId', e.target.value)}><option value="">بدون مندوبة</option>{agents.filter((a) => a.enabled).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</select></label>}
       <div className="form-section-title"><span>02</span><div><strong>العنوان من درب السبيل</strong><small>اختر مدينة ثم منطقة من القائمة المعتمدة</small></div></div>
       <div className="field-grid"><label className="field">المدينة<select value={form.city} disabled={loading} onChange={(e) => { setForm((old) => ({ ...old, city: e.target.value, area: '' })); setAreaQuery(''); }}><option value="">اختر المدينة</option>{locations.map((item) => <option key={item.city} value={item.city}>{item.city}</option>)}</select></label><label className="field">المنطقة{selectedLocation && selectedLocation.areas.length > 12 && <input type="search" value={areaQuery} onChange={(e) => { setAreaQuery(e.target.value); set('area', ''); }} placeholder="ابحث عن المنطقة" />}<select value={form.area} disabled={!form.city || loading} onChange={(e) => set('area', e.target.value)}><option value="">اختر المنطقة</option>{selectedLocation?.areas.filter((area) => area.includes(areaQuery.trim())).map((area) => <option key={area} value={area}>{area}</option>)}</select></label></div>
@@ -87,6 +93,7 @@ export default function OrderForm({ initial, onClose, onCreate, busy, defaultSer
       <label className="field">خدمة التوصيل<select value={form.serviceId || ''} disabled={loading} onChange={(e) => set('serviceId', e.target.value)}><option value="">اختر الخدمة</option>{packages.filter((item) => !item.attributes?.includes('deposit')).map((item) => <option key={item._id} value={item._id}>{item.title || item.name || item._id}</option>)}</select></label>
       <div className="field-grid"><label className="field">الكمية<input type="number" min="1" step="1" value={form.quantity} onChange={(e) => set('quantity', Number(e.target.value || 0))} /></label><label className="field">سعر القطعة<input type="number" min="0" step="0.01" value={form.unitPrice} onChange={(e) => set('unitPrice', Number(e.target.value || 0))} /></label></div>
       <div className="field-grid"><label className="field">المحصّل من الزبون<input type="number" min="0" step="0.01" value={form.paid} onChange={(e) => set('paid', Number(e.target.value || 0))} /></label><label className="field">ملاحظات<input value={form.notes} onChange={(e) => set('notes', e.target.value)} placeholder="اختياري" /></label></div>
+      {(!quantityValid || !amountValid) && <p className="field-hint-error" role="alert">تحقّق من الكمية والمبالغ: الكمية عدد صحيح موجب، والمبالغ لا تقل عن صفر.</p>}
       <div className={`quote-card ${quote ? 'ready' : ''}`}><div><Truck size={19} /><span>سعر التوصيل من درب السبيل</span></div><strong>{quote ? money(quote.deliveryFee) : quoting ? 'جاري الحساب…' : 'أكمل البيانات'}</strong>{quote?.components.map((item, index) => <div className="quote-part" key={index}><span>{item.label}</span><b>{money(item.amount)}</b></div>)}{quote && <small><Check size={14} /> تم حساب السعر حسب المنتج والعنوان والخدمة</small>}{quoteError && <><p className="form-error"><CircleAlert size={16} />{quoteError}</p><button className="btn ghost" onClick={() => setQuoteAttempt((n) => n + 1)}><RefreshCw size={16} /> إعادة حساب السعر</button></>}</div>
       <div className="order-total-preview"><span>إجمالي الطلب مع التوصيل</span><strong>{quote ? money(total) : '—'}</strong></div>
     </div>
