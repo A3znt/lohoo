@@ -54,3 +54,19 @@ export function weeklyOrderActivity(orders: readonly Pick<Order, 'createdAt'>[],
     };
   });
 }
+
+export type OrderSort = 'newest' | 'oldest' | 'highest_total' | 'lowest_total';
+
+export function sortOrders(orders: readonly Order[], sort: OrderSort): Order[] {
+  const rows = [...orders];
+  const date = (order: Order) => {
+    const value = Date.parse(order.createdAt);
+    return Number.isFinite(value) ? value : 0;
+  };
+  switch (sort) {
+    case 'oldest': return rows.sort((a, b) => date(a) - date(b));
+    case 'highest_total': return rows.sort((a, b) => orderTotal(b) - orderTotal(a));
+    case 'lowest_total': return rows.sort((a, b) => orderTotal(a) - orderTotal(b));
+    default: return rows.sort((a, b) => date(b) - date(a));
+  }
+}

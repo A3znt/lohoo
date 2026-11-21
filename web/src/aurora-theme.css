@@ -472,3 +472,116 @@ button{-webkit-tap-highlight-color:transparent}
 @media(max-width:420px){
   .hero-visual{opacity:.3;right:-83px;bottom:-106px}
 }
+
+/* Professional productivity controls: discoverable copying, sorting, and paging. */
+.sr-only{position:absolute!important;width:1px!important;height:1px!important;padding:0!important;margin:-1px!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;white-space:nowrap!important;border:0!important}
+.copy-button{
+  display:inline-flex;align-items:center;justify-content:center;gap:7px;
+  min-width:34px;min-height:32px;padding:5px 10px;
+  border:1px solid rgba(106,168,245,.28);
+  border-radius:10px;background:rgba(231,243,255,.85);
+  color:#2c73d2;font-size:11px;font-weight:700;line-height:1.2;
+  flex:none;white-space:nowrap;cursor:pointer;
+  transition:background .16s,border-color .16s,transform .16s;
+}
+.copy-button.compact{width:32px;min-width:32px;height:32px;padding:0}
+.copy-button:hover:not(:disabled){background:#d5ecff;border-color:#71b8ff;transform:translateY(-1px)}
+.copy-button.copied{background:#dff8ef;border-color:#98dfb8;color:#16865b}
+.copy-button.error{background:#fff0e7;border-color:#f2bf94;color:#b76c2e}
+.copy-button:focus-visible{outline:3px solid #67b5ff;outline-offset:2px}
+.copy-button:disabled{opacity:.48}
+.order-row{cursor:pointer}
+.order-row:focus-visible{outline:3px solid #6fb8ff;outline-offset:-3px;background:#eef7ff}
+.order-id-line{display:flex!important;align-items:center;gap:7px;min-width:0}
+.order-id-line small{display:inline-flex;align-items:center;gap:5px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.order-id-line b{font-size:11px;direction:ltr;unicode-bidi:isolate;font-weight:750;color:#2b63a8;letter-spacing:.1px}
+.order-id-line .copy-button{width:27px!important;height:27px!important;min-height:27px!important;min-width:27px!important;border-radius:8px}
+.order-id-line .copy-button svg{width:13px;height:13px}
+.order-meta{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%;color:#7d93b7}
+.metric-top .copy-button{background:rgba(238,246,255,.9)}
+.metric-top .copy-button:hover{background:#d5ebff}
+.list-toolbar{display:flex;align-items:center;gap:13px;flex-wrap:wrap}
+.list-toolbar .search{min-width:210px;flex:1;width:auto;max-width:none}
+.list-tools{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+.sort-control{display:flex;align-items:center;gap:8px;color:#7088ab;font-size:11px;font-weight:700}
+.sort-control select{background:#f3f8ff;border:1px solid #caddf7;border-radius:10px;color:#315783;padding:8px 9px;font:inherit;min-height:40px}
+.sort-control select:focus-visible{outline:3px solid #6fbbff;outline-offset:2px}
+.export-button{gap:7px;min-height:40px;padding:9px 12px}
+.load-more{display:flex;align-items:center;justify-content:center;gap:15px;padding:20px;border-top:1px solid #dceafb;color:#6c86ac;font-size:11px}
+.load-more .btn{min-height:36px}
+.detail-line>.detail-value{display:flex;align-items:center;justify-content:flex-end;gap:10px;flex:1;min-width:0;color:inherit}
+.detail-value b{overflow-wrap:anywhere;min-width:0;color:#274c7f;text-align:left;font-weight:650}
+.detail-value b.strong{color:#1670c7}
+.drawer-head .overline>.copy-button{vertical-align:middle;margin-inline-start:7px}
+.share-toolbar{display:flex;justify-content:flex-end;margin:9px 0}
+.initial-data-loading{
+  display:flex;align-items:center;gap:12px;padding:23px;margin-bottom:18px;
+  border-radius:18px;background:rgba(255,255,255,.76);border:1px solid #cde0f8;
+  color:#5473a0;font-size:13px;box-shadow:var(--aurora-shadow);
+}
+.initial-data-loading .spinner{width:22px;height:22px;flex:none}
+.loading-screen[role="status"]{text-align:center}
+@media(max-width:800px){
+  .list-toolbar{gap:10px}
+  .list-toolbar .search{flex-basis:100%;min-width:0}
+  .list-tools{flex:1;justify-content:flex-start}
+  .count-pill{display:inline-block;margin-inline-start:auto}
+  .sort-control{font-size:10px}
+  .order-id-line .copy-button{width:30px!important;height:30px!important}
+  .load-more{flex-wrap:wrap}
+}
+@media(max-width:390px){
+  .list-tools{width:100%;justify-content:space-between}
+  .sort-control{gap:5px}
+  .sort-control select{padding:8px 6px}
+  .detail-value{gap:5px!important}
+}
+/* Validation hints and consistent loading affordances. */
+.field-hint-error{display:block;color:#b94e50;font-size:11px;line-height:1.7;padding:5px 2px}
+.field input[aria-invalid="true"]{border-color:#da7676;background:#fffafb}
+.loading-screen{background:radial-gradient(circle at 50% 25%,#d6e9ff,transparent 50%),#eaf1fd;color:#395984;min-height:100dvh;height:auto;padding:20px}
+.loading-screen .brand-mark{box-shadow:0 12px 30px rgba(34,116,233,.22)}
+.initial-data-loading .spinner{border-color:#d9e9ff;border-top-color:#3699ee}
+
+/* Carrier tracking and explicit phone action, even on narrow screens. */
+.row-tracking{display:flex!important;align-items:center;gap:7px;margin-top:3px;min-width:0}
+.row-tracking small{display:inline-flex;gap:5px;align-items:center;font-size:10px;color:#5477ad}
+.row-tracking b{font-size:11px;direction:ltr;unicode-bidi:isolate;color:#2468c4;font-weight:750}
+.row-tracking .copy-button{width:27px;min-width:27px;height:27px;min-height:27px;padding:0;border-radius:8px}
+.row-tracking .copy-button svg{width:13px;height:13px}
+.phone-call-link{
+  display:inline-flex;align-items:center;gap:7px;margin:9px 0 13px;padding:9px 13px;
+  width:max-content;min-height:37px;border:1px solid #9dc8f8;border-radius:11px;
+  background:#e8f4ff;color:#286dbb;font-size:11px;font-weight:750;text-decoration:none;
+}
+.phone-call-link:hover{background:#d8ecff;color:#1e59a6}
+.phone-call-link:focus-visible{outline:3px solid #6cbaff;outline-offset:2px}
+@media(max-width:620px){
+  .row-tracking b{font-size:10px}
+  .row-tracking .copy-button{width:30px;min-width:30px;height:30px;min-height:30px}
+}
+
+/* Keyboard access to the main region, visible only when focused. */
+.skip-link{
+  position:fixed;top:10px;right:12px;z-index:120;transform:translateY(-160%);
+  display:inline-flex;padding:10px 16px;background:#f1f8ff;color:#164f9b;
+  border:2px solid #55b2ff;border-radius:12px;box-shadow:0 9px 25px rgba(13,49,113,.23);
+  font-weight:750;font-size:12px;text-decoration:none;transition:transform .15s ease;
+}
+.skip-link:focus{transform:translateY(0)}
+@media(prefers-reduced-motion:reduce){.skip-link{transition:none}}
+
+/* Separate focusable actions for row opening and copying (no nested buttons). */
+.order-row{position:relative}
+.row-open-action{
+  position:absolute;inset:0;z-index:1;width:100%;height:100%;
+  padding:0;margin:0;border:0;border-radius:0;background:transparent;
+  cursor:pointer;
+}
+.row-open-action:hover{background:rgba(77,160,252,.045)}
+.row-open-action:focus-visible{
+  outline:3px solid #62b4ff;outline-offset:-3px;
+  background:rgba(77,160,252,.08);border-radius:10px;
+}
+.order-row .copy-button{position:relative;z-index:2}
+.order-row:focus-visible{outline:none}
