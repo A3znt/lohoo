@@ -19,10 +19,10 @@ test('copy controls are present for identifiers, phone, tracking and numeric met
 
 test('order listing keeps copy actions independent and provides keyboard access', async () => {
   const source = await read('web/src/main.tsx');
-  assert.match(source, /className="order-row" role="button" tabIndex=\{0\}/);
-  assert.match(source, /event\.target === event\.currentTarget/);
-  assert.match(source, /event\.key === 'Enter'/);
-  assert.match(source, /event\.key === ' '/);
+  assert.match(source, /className="order-row" role="group"/);
+  assert.match(source, /className="row-open-action" onClick=\{\(\) => onSelect\(order\)\}/);
+  assert.match(source, /aria-label=\{\`فتح الطلب /);
+  assert.doesNotMatch(source, /className="order-row" role="button"/);
   assert.match(source, /visible\.slice\(0, visibleLimit\)/);
   assert.match(source, /shippingOrders\.slice\(0, visibleLimit\)/);
 });
