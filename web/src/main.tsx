@@ -27,6 +27,11 @@ const statusText: Record<OrderStatus, string> = {
 const smsText: Record<string, string> = { pending: 'بانتظار الإرسال', needs_key: 'يحتاج قالب رسالة', sending: 'جاري الإرسال', sent: 'قبِلته شركة الرسائل', delivered: 'وصلت إلى هاتف الزبون', failed: 'فشل الإرسال', unknown: 'حالة غير مؤكدة' };
 const today = new Intl.DateTimeFormat('ar-LY', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(new Date());
 const shortDate = (value: string) => new Intl.DateTimeFormat('ar-LY', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }).format(new Date(value));
+const emptyBootstrap = (actor: Actor = { role: 'admin', id: 'admin', name: 'المدير' }): Bootstrap => ({
+  actor, orders: [], settings: { serviceId: '', autoMessages: true },
+  resalaConfigured: false, agents: [],
+  commission: { assigned: 0, delivered: 0, earned: 0, paid: 0, due: 0 },
+});
 
 function IconBox({ icon: Icon, tone = 'teal' }: { icon: typeof Box; tone?: string }) { return <span className={`icon-box ${tone}`}><Icon size={20} strokeWidth={1.8} /></span>; }
 function Status({ value }: { value: OrderStatus }) { return <span className={`status status-${value}`}><i />{statusText[value]}</span>; }
@@ -36,7 +41,7 @@ function Empty({ title, description, onClick }: { title: string; description: st
 function App() {
   const [authenticated, setAuthenticated] = useState<boolean | null>(null);
   const [authError, setAuthError] = useState('');
-  const [data, setData] = useState<Bootstrap>({ actor: { role: 'admin', id: 'admin', name: 'المدير' }, orders: [], settings: { serviceId: '', autoMessages: true }, resalaConfigured: false, agents: [], commission: { assigned: 0, delivered: 0, earned: 0, paid: 0, due: 0 } });
+  const [data, setData] = useState<Bootstrap>(() => emptyBootstrap());
   const [view, setView] = useState<View>('overview');
   const [selected, setSelected] = useState<Order | null>(null);
   const [editing, setEditing] = useState<Order | null>(null);
@@ -69,10 +74,7 @@ function App() {
     } catch (error) {
       if (requestId === refreshRequest.current) {
         if (error instanceof ApiError && error.status === 401) {
-          setAuthenticated(false);
-          setSelected(null);
-          setEditing(null);
-          setFormOpen(false);
+          clearSessionData();
         } else {
           setSyncError(error instanceof Error ? error.message : 'تعذر تحديث الطلبات.');
         }
@@ -82,13 +84,32 @@ function App() {
       if (requestId === refreshRequest.current) setRefreshing(false);
     }
   };
+  function clearSessionData() {
+    refreshRequest.current += 1;
+    setData(emptyBootstrap());
+    setLastSyncedAt(null);
+    setSyncError('');
+    setSelected(null);
+    setEditing(null);
+    setTrash(null);
+    setFormOpen(false);
+    setMenuOpen(false);
+    setToast('');
+    setQuery('');
+    setFilter('all');
+    setVisibleLimit(30);
+    setRefreshing(false);
+    setBusy(false);
+    setAuthenticated(false);
+  }
   async function checkSession() {
     setAuthError('');
     try {
       const actor = await session();
       setAuthenticated(Boolean(actor));
       if (actor) {
-        setData((previous) => ({ ...previous, actor }));
+        setData(emptyBootstrap(actor));
+        setLastSyncedAt(null);
         void refresh().catch(() => {});
       }
     } catch (error) {
@@ -145,7 +166,8 @@ function App() {
       else if (success) setToast(success);
       return result;
     } catch (error) {
-      setToast(error instanceof Error ? error.message : 'تعذر تنفيذ العملية');
+      if (error instanceof ApiError && error.status === 401) clearSessionData();
+      else setToast(error instanceof Error ? error.message : 'تعذر تنفيذ العملية');
       throw error;
     }
     finally { setBusy(false); }
@@ -175,7 +197,7 @@ function App() {
   }
 
   if (authenticated === null) return <div className="loading-screen"><span className="brand-mark"><Box size={27} /></span>{authError ? <><CircleAlert size={24} /><p role="alert">{authError}</p><button className="btn primary" onClick={() => void checkSession()}>إعادة المحاولة</button></> : <><div className="spinner" /><p>جاري تجهيز مساحة عملك…</p></>}</div>;
-  if (!authenticated) return <Login onLogin={async (mode, token, username) => { if (mode === 'admin') await login(token); else await loginAgent(username, token); const actor = await session(); if (!actor) throw new Error('تعذر التحقق من الجلسة.'); setData((previous) => ({ ...previous, actor })); setAuthenticated(true); void refresh().catch(() => {}); }} />;
+  if (!authenticated) return <Login onLogin={async (mode, token, username) => { if (mode === 'admin') await login(token); else await loginAgent(username, token); const actor = await session(); if (!actor) throw new Error('تعذر التحقق من الجلسة.'); refreshRequest.current += 1; setData(emptyBootstrap(actor)); setLastSyncedAt(null); setSyncError(''); setAuthenticated(true); void refresh().catch(() => {}); }} />;
 
   return <div className="app-shell">
     {menuOpen && <button className="mobile-scrim" aria-label="إغلاق القائمة" onClick={() => setMenuOpen(false)} />}
@@ -191,7 +213,7 @@ function App() {
       </nav>
       <div className="sidebar-bottom">
         <div className="sidebar-tip"><Sparkles size={18} /><strong>كل شيء في مكان واحد</strong><span>من رسالة الزبون إلى وصول الطلب.</span></div>
-        <div className="sidebar-user"><span className="avatar">{data.actor.name.slice(0, 1)}</span><div><strong>{data.actor.name}</strong><small>{data.actor.role === 'admin' ? 'مدير المتجر' : 'مندوبة'}</small></div><button aria-label="تسجيل الخروج" title="تسجيل الخروج" onClick={async () => { try { await logout(); refreshRequest.current += 1; setAuthenticated(false); } catch (error) { setToast(error instanceof Error ? error.message : 'تعذر تسجيل الخروج'); } }}><LogOut size={18} /></button></div>
+        <div className="sidebar-user"><span className="avatar">{data.actor.name.slice(0, 1)}</span><div><strong>{data.actor.name}</strong><small>{data.actor.role === 'admin' ? 'مدير المتجر' : 'مندوبة'}</small></div><button aria-label="تسجيل الخروج" title="تسجيل الخروج" onClick={async () => { try { await logout(); clearSessionData(); } catch (error) { setToast(error instanceof Error ? error.message : 'تعذر تسجيل الخروج'); } }}><LogOut size={18} /></button></div>
       </div>
     </aside>
 
