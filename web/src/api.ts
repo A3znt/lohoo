@@ -23,7 +23,7 @@ export interface Settings { serviceId: string; autoMessages: boolean }
 export interface NotificationRecord { id: string; agentId: string; orderId: string; kind: 'postponed' | 'delivery_failed' | 'cancelled' | 'manual'; title: string; body: string; reason: string; createdAt: string; readAt: string }
 export interface Package { _id: string; title?: string; name?: string; price?: number; attributes?: string[] }
 export interface WarehouseVariant { id: string; sku: string; attributes: { key: string; value: string }[]; widthCM: number; heightCM: number; lengthCM: number; isFragile: boolean; allowInspection: boolean; allowTesting: boolean }
-export interface WarehouseProduct { id: string; name: string; salePrice: number; currency: string; variants: WarehouseVariant[] }
+export interface WarehouseProduct { id: string; name: string; salePrice: number; currency: string; isPublished: boolean; isReviewed: boolean; isBlocked: boolean; variants: WarehouseVariant[] }
 export interface Bootstrap { actor: Actor; orders: Order[]; settings: Settings; resalaConfigured: boolean; notifications: NotificationRecord[]; vapidPublicKey: string; agents: AgentSummary[]; commission: CommissionSummary; walletEntries: WalletEntry[] }
 export type OrderInput = Pick<Order, 'id' | 'source' | 'customer' | 'phone' | 'city' | 'area' | 'address' | 'product' | 'quantity' | 'unitPrice' | 'deliveryFee' | 'paid' | 'notes'> & { serviceId?: string; warehouseProductId: string; warehouseVariantId: string; agentId?: string };
 

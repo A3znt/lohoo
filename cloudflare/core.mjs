@@ -154,6 +154,7 @@ export function warehouseProductView(product) {
   return {
     id: String(product._id || ''), name: String(product.productName || ''),
     salePrice: Number(product.salePrice || 0), currency: String(product.currency || 'lyd'),
+    isPublished: Boolean(product.isPublished), isReviewed: Boolean(product.isReviewed), isBlocked: Boolean(product.isBlocked),
     variants: (Array.isArray(product.variants) ? product.variants : []).map((variant) => ({
       id: String(variant._id || ''), sku: String(variant.sku || ''),
       attributes: (Array.isArray(variant.attributes) ? variant.attributes : []).map(({ key, value }) => ({ key: String(key || ''), value: String(value || '') })),
@@ -167,7 +168,7 @@ export async function listWarehouseProducts() {
   for (let offset = 0; offset < 1000; offset += 10) {
     const data = await darb('GET', `/api/warehouse/products/?offset=${offset}`);
     const page = Array.isArray(data?.results) ? data.results : [];
-    all.push(...page.filter((product) => product.isPublished && !product.isBlocked).map(warehouseProductView));
+    all.push(...page.map(warehouseProductView));
     if (page.length < 10) break;
   }
   return all;

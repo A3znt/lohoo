@@ -25,6 +25,7 @@ export default function OrderForm({ initial, carrierEdit = false, onClose, onCre
   const selectedLocation = locations.find((item) => item.city === form.city);
   const selectedProduct = products.find((item) => item.id === form.warehouseProductId);
   const selectedVariant = selectedProduct?.variants.find((item) => item.id === form.warehouseVariantId);
+  const pendingProducts = products.filter((item) => !item.isPublished && !item.isBlocked);
 
   async function loadDarb() {
     setLoading(true); setLoadError('');
@@ -48,7 +49,7 @@ export default function OrderForm({ initial, carrierEdit = false, onClose, onCre
     Number.isFinite(number) && number >= 0 && number <= 10000000);
   const quantityValid = Number.isInteger(form.quantity) && form.quantity >= 1 && form.quantity <= 10000;
   const ready = Boolean(form.customer.trim() && phoneValid && form.city && form.area && form.address.trim() &&
-    form.warehouseProductId && form.warehouseVariantId && form.serviceId &&
+    selectedProduct?.isPublished && !selectedProduct.isBlocked && form.warehouseVariantId && form.serviceId &&
     quantityValid && amountValid && !loading && !loadError);
   const currentQuote = ready && quote?.input === quoteInput ? quote.value : null;
   useEffect(() => {
@@ -67,6 +68,7 @@ export default function OrderForm({ initial, carrierEdit = false, onClose, onCre
   }, [quoteInput, ready, products, locations, quoteAttempt]);
   function chooseProduct(id: string) {
     const product = products.find((item) => item.id === id);
+    if (product && (!product.isPublished || product.isBlocked)) return;
     const variant = product?.variants[0];
     setForm((old) => ({ ...old, warehouseProductId: product?.id || '', warehouseVariantId: variant?.id || '',
       product: product && variant ? `${product.name} - ${variant.sku}` : '', unitPrice: product?.salePrice || 0 }));
@@ -91,7 +93,8 @@ export default function OrderForm({ initial, carrierEdit = false, onClose, onCre
       <div className="field-grid"><label className="field">المدينة<select value={form.city} disabled={loading} onChange={(e) => { setForm((old) => ({ ...old, city: e.target.value, area: '' })); setAreaQuery(''); }}><option value="">اختر المدينة</option>{locations.map((item) => <option key={item.city} value={item.city}>{item.city}</option>)}</select></label><label className="field">المنطقة{selectedLocation && selectedLocation.areas.length > 12 && <input type="search" value={areaQuery} onChange={(e) => { setAreaQuery(e.target.value); set('area', ''); }} placeholder="ابحث عن المنطقة" />}<select value={form.area} disabled={!form.city || loading} onChange={(e) => set('area', e.target.value)}><option value="">اختر المنطقة</option>{selectedLocation?.areas.filter((area) => area.includes(areaQuery.trim())).map((area) => <option key={area} value={area}>{area}</option>)}</select></label></div>
       <label className="field">العنوان التفصيلي<input value={form.address} onChange={(e) => set('address', e.target.value)} placeholder="الشارع وأقرب نقطة دلالة" /></label>
       <div className="form-section-title"><span>03</span><div><strong>المنتج وخدمة التوصيل</strong><small>الاسم والقياس من مخزون درب السبيل</small></div></div>
-      <label className="field">المنتج<select value={form.warehouseProductId} disabled={loading} onChange={(e) => chooseProduct(e.target.value)}><option value="">اختر المنتج</option>{products.map((item) => <option key={item.id} value={item.id}>{item.name} · {money(item.salePrice)}</option>)}</select></label>
+      <label className="field">المنتج<select value={form.warehouseProductId} disabled={loading} onChange={(e) => chooseProduct(e.target.value)}><option value="">اختر المنتج</option>{products.map((item) => <option key={item.id} value={item.id} disabled={!item.isPublished || item.isBlocked}>{item.name} · {money(item.salePrice)}{item.isBlocked ? ' · موقوف من درب السبيل' : !item.isPublished ? ' · بانتظار اعتماد درب السبيل' : ''}</option>)}</select></label>
+      {pendingProducts.length > 0 && <p className="warehouse-pending-note" role="note">بانتظار اعتماد درب السبيل: {pendingProducts.map((item) => item.name).join('، ')}. تظهر هذه المنتجات للمتابعة، وتصبح قابلة للاختيار بعد نشرها من الشركة.</p>}
       {selectedProduct && <label className="field">الصنف أو القياس<select value={form.warehouseVariantId} onChange={(e) => chooseVariant(e.target.value)}>{selectedProduct.variants.map((variant) => <option key={variant.id} value={variant.id}>{variant.sku}{variant.attributes.length ? ` · ${variant.attributes.map((part) => part.value).join(' / ')}` : ''}</option>)}</select></label>}
       {selectedVariant && <div className="warehouse-summary"><span><Box size={15} /> SKU: {selectedVariant.sku}</span><span>القياس: {selectedVariant.widthCM} × {selectedVariant.heightCM} × {selectedVariant.lengthCM} سم</span></div>}
       <label className="field">خدمة التوصيل<select value={form.serviceId || ''} disabled={loading} onChange={(e) => set('serviceId', e.target.value)}><option value="">اختر الخدمة</option>{packages.filter((item) => !item.attributes?.includes('deposit')).map((item) => <option key={item._id} value={item._id}>{item.title || item.name || item._id}</option>)}</select></label>

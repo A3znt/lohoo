@@ -141,6 +141,7 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
 .order-form-new .form-section-title{border-color:#e9decd}
 .warehouse-summary,.quote-card.ready{border-color:#d6c19d}
 .warehouse-summary span{background:#f4ecd9;border-color:#e8d9ba;color:#6e5a3a}
+.warehouse-pending-note{margin:0;padding:11px 13px;border:1px solid #e1cc9f;border-radius:10px;background:#fff8e8;color:#745733;font-size:11px;line-height:1.7}
 .quote-card.ready{background:#f7f0e2}
 .quote-card>div,.quote-part,.quote-card>small{color:#6b573a}
 .quote-card>strong,.quote-part b{color:#503a22}

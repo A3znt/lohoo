@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { generateKeyPairSync, scryptSync } from 'node:crypto';
 import { binding, ordersStore, withContext } from '../cloudflare/runtime.mjs';
-import { adminPasswordValid, editPendingShipment, isAuthenticated, removeOrder, sameOrigin, sessionCookie, syncOrder } from '../cloudflare/core.mjs';
+import { adminPasswordValid, editPendingShipment, isAuthenticated, listWarehouseProducts, removeOrder, sameOrigin, sessionCookie, syncOrder, warehouseSelection } from '../cloudflare/core.mjs';
 import { carrierEvent, createCarrierNotification, listNotifications, markNotificationRead, removePushSubscription, savePushSubscription } from '../cloudflare/notifications.mjs';
 import ordersApi from '../cloudflare/api.mjs';
 import { agentSessionCookie, createAgent, loginAgent } from '../cloudflare/team.mjs';
@@ -225,6 +225,25 @@ test('Cloudflare D1 stores JSON and rejects duplicate creates and stale writes',
     await store.setJSON('agents/one', { enabled: true });
     assert.deepEqual((await store.list({ prefix: 'orders/' })).blobs, [{ key: 'orders/one' }, { key: 'orders/two' }]);
   });
+});
+
+test('a Darb product awaiting review is visible in the catalog but cannot be used for a shipment', async () => {
+  const previousFetch = globalThis.fetch;
+  const productId = '6b0371d3eb14e65ff5b4e9cc';
+  const variantId = '6b0371d3eb14e65ff5b4e9c9';
+  const product = { _id: productId, productName: 'طاولة كومبو', salePrice: 350, currency: 'lyd',
+    isPublished: false, isReviewed: false, isBlocked: false,
+    variants: [{ _id: variantId, sku: 'COMBO-1', width: 10, height: 10, length: 10 }] };
+  globalThis.fetch = async () => Response.json({ status: true, data: { results: [product] } });
+  try {
+    await withContext({ DARB_API_KEY: 'fixture', DARB_ACCOUNT_ID: 'fixture' }, async () => {
+      const catalog = await listWarehouseProducts();
+      assert.equal(catalog[0].name, 'طاولة كومبو');
+      assert.equal(catalog[0].isPublished, false);
+      assert.deepEqual([catalog[0].variants[0].widthCM, catalog[0].variants[0].heightCM, catalog[0].variants[0].lengthCM], [10, 10, 10]);
+      await assert.rejects(warehouseSelection(productId, variantId), /لم يعد متاحًا/);
+    });
+  } finally { globalThis.fetch = previousFetch; }
 });
 
 test('Cloudflare bindings remain isolated between overlapping requests', async () => {
