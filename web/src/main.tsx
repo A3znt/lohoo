@@ -17,6 +17,7 @@ import './rukn-theme.css';
 import OrderForm from './OrderForm';
 import CopyButton from './CopyButton';
 import NotificationsPanel from './NotificationsPanel';
+import TeamPage from './TeamPage';
 import { exportOrdersCsv } from './order-export.mjs';
 import { dashboardMetrics, filterOrders, sortOrders, weeklyOrderActivity, type OrderSort } from './order-view';
 import { ApiError, api, login, loginAgent, logout, money, orderNumber, orderTotal, session, type Actor, type AgentSummary, type Bootstrap, type NotificationRecord, type Order, type OrderInput, type OrderStatus, type Package, type Settings } from './api';
@@ -380,9 +381,10 @@ function App() {
     <nav className="bottom-tabs" aria-label="التنقل السريع">
       {([
         ['overview', LayoutDashboard, 'الرئيسية'], ['orders', ClipboardList, 'الطلبات'],
+        ['create', Plus, 'طلب جديد'],
         ['shipping', Truck, 'الشحن'], ...(data.actor.role === 'admin' ? [['team', Users, 'الفريق'], ['settings', Settings2, 'الإعدادات']] as const : []),
       ] as const).map(([key, Icon, label]) =>
-        <button type="button" key={key} className={view === key ? 'active' : ''} aria-current={view === key ? 'page' : undefined} onClick={() => navigate(key)}>
+        <button type="button" key={key} className={`${view === key ? 'active' : ''} ${key === 'create' ? 'tab-create' : ''}`} aria-current={view === key ? 'page' : undefined} onClick={() => key === 'create' ? setFormOpen(true) : navigate(key)}>
           <Icon size={21} strokeWidth={1.8} aria-hidden="true" />
           <span>{label}</span>
         </button>)}
@@ -464,29 +466,6 @@ function RetryShipmentPanel({ order, busy, onAction }: { order: Order; busy: boo
   const selected = locations.find((item) => item.city === city);
   const ready = Boolean(selected?.areas.includes(area) && address.trim());
   return <div className="detail-section retry-panel"><h3>إصلاح الشحنة</h3><p>هذا الطلب توقف قبل إنشاء الشحنة. راجع العنوان، ثم أعد إرساله إلى درب السبيل.</p><div className="field-grid"><label className="field">المدينة<select value={selected ? city : ''} onChange={(e) => { setCity(e.target.value); setArea(''); }}><option value="">اختر المدينة</option>{locations.map((item) => <option key={item.city} value={item.city}>{item.city}</option>)}</select></label><label className="field">المنطقة<select value={ready || selected?.areas.includes(area) ? area : ''} disabled={!selected} onChange={(e) => setArea(e.target.value)}><option value="">اختر المنطقة</option>{selected?.areas.map((item) => <option key={item} value={item}>{item}</option>)}</select></label></div><label className="field">العنوان التفصيلي<input value={address} onChange={(e) => setAddress(e.target.value)} /></label>{error && <div className="form-error">{error}</div>}<button className="btn primary full" disabled={!ready || busy} onClick={() => { if (window.confirm('سيُنشأ طلب شحن في درب السبيل وتُرسل رسالة التأكيد للزبون. تأكد من صحة البيانات.')) onAction('retryShipment', { destination: { city, area, address } }, 'تمت إعادة محاولة إنشاء الشحنة'); }}><RefreshCw size={17} /> إعادة إرسال الشحنة</button></div>;
-}
-
-function TeamPage({ agents, busy, run }: { agents: AgentSummary[]; busy: boolean; run: <T>(task: () => Promise<T>, success?: string) => Promise<T> }) {
-  const [name, setName] = useState('');
-  const [username, setUsername] = useState('');
-  const [credential, setCredential] = useState<{ name: string; username: string; password: string } | null>(null);
-  async function createAgentAccount() {
-    try {
-      const result = await run(() => api<AgentSummary & { password: string }>('createAgent', { agent: { name, username } }), 'تم إنشاء حساب المندوبة');
-      setCredential(result); setName(''); setUsername('');
-    } catch { /* toast */ }
-  }
-  async function changeAgentAccount(action: 'resetAgentPassword' | 'setAgentEnabled', agent: AgentSummary) {
-    try {
-      const result = await run(() => api<AgentSummary & { password?: string }>(action, { id: agent.id, enabled: !agent.enabled }), action === 'resetAgentPassword' ? 'تم تجديد كلمة المرور' : 'تم تحديث حالة الحساب');
-      if (result.password) setCredential({ name: result.name, username: result.username, password: result.password });
-    } catch { /* toast */ }
-  }
-  return <><PageTitle overline="فريق العمل" title="المندوبات والعمولات." description="15 د.ل لكل طلب بعد تسليمه. سجّل الصرف من تفاصيل الطلب." />
-    <div className="team-summary"><Metric icon={Users} label="المندوبات" value={String(agents.filter((a) => a.enabled).length)} note="حسابات نشطة" tone="teal" /><Metric icon={PackageCheck} label="طلبات تم تسليمها" value={String(agents.reduce((n, a) => n + a.delivered, 0))} note="لكل المندوبات" tone="blue" /><Metric icon={Wallet} label="عمولات مستحقة" value={money(agents.reduce((n, a) => n + a.due, 0))} note="تُصرف بعد التسليم" tone="amber" /></div>
-    <div className="team-layout"><section className="panel team-panel"><div className="panel-head"><div><span className="overline">الفريق الحالي</span><h2>الحسابات</h2></div></div>{agents.length ? agents.map((agent) => <article className="agent-card" key={agent.id}><div className="agent-card-head"><span className="customer-avatar">{agent.name.slice(0, 1)}</span><div><strong>{agent.name}</strong><small dir="ltr">@{agent.username}</small></div><span className={`agent-state ${agent.enabled ? '' : 'disabled'}`}>{agent.enabled ? 'نشطة' : 'موقوفة'}</span></div><div className="agent-stats"><span>الطلبات <b>{agent.assigned}</b></span><span>المسلّمة <b>{agent.delivered}</b></span><span>المستحق <b>{money(agent.earned)}</b></span><span>المصروف <b>{money(agent.paid)}</b></span><span>المتبقي <b>{money(agent.due)}</b></span></div><div className="agent-actions"><button className="btn ghost" disabled={busy} onClick={() => changeAgentAccount('resetAgentPassword', agent)}>تجديد كلمة المرور</button><button className="btn ghost" disabled={busy} onClick={() => changeAgentAccount('setAgentEnabled', agent)}>{agent.enabled ? 'إيقاف الحساب' : 'تفعيل الحساب'}</button></div></article>) : <p className="team-empty">أضف أول مندوبة لتظهر حساباتها وعمولاتها هنا.</p>}</section>
-    <section className="panel team-panel add-agent"><div className="panel-head"><div><span className="overline">إضافة حساب</span><h2>مندوبة جديدة</h2></div><IconBox icon={Plus} /></div><p>اسم دخول خاص وكلمة مرور تُعرض مرة واحدة بعد الإنشاء.</p><Field label="الاسم" value={name} onChange={setName} placeholder="اسم المندوبة" /><Field label="اسم الدخول بالإنجليزية" value={username} onChange={setUsername} placeholder="مثال: saja" /><button className="btn primary full" disabled={busy || name.trim().length < 2 || username.trim().length < 3} onClick={createAgentAccount}>إضافة مندوبة <Plus size={17} /></button></section></div>
-    {credential && <div className="confirm-layer"><div className="confirm-card credential-card" role="dialog" aria-modal="true" aria-label="بيانات الدخول الجديدة"><span className="confirm-icon"><LockKeyhole size={25} /></span><h3>بيانات دخول {credential.name}</h3><p>احفظ كلمة المرور الآن؛ لن تظهر مرة ثانية. يمكنك تجديدها لاحقًا.</p><div className="credential-line"><span>اسم الدخول</span><strong dir="ltr">{credential.username}</strong></div><div className="credential-line"><span>كلمة المرور</span><strong dir="ltr">{credential.password}</strong></div><button className="btn primary full" onClick={() => setCredential(null)}>حفظت البيانات</button></div></div>}</>;
 }
 
 function SettingsPage({ settings, resalaConfigured, busy, onSave }: { settings: Settings; resalaConfigured: boolean; busy: boolean; onSave: (settings: Settings) => void }) {

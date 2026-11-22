@@ -220,10 +220,16 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
 .notification-invite{background:#f7edda;border:1px solid #ddc79f;color:#66502e;border-radius:14px}
 .notification-invite svg{color:#9d7540}
 .notification-invite button{color:#76532a}
+.team-money-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:22px 0}.team-money-grid>div{display:grid;gap:7px;padding:17px;border:1px solid #e7dccc;border-radius:16px;background:#fffdfa;color:#816e52}.team-money-grid>div svg{color:#a17b42}.team-money-grid span{font-size:11px}.team-money-grid strong{font-size:20px;color:#2b251f}.team-money-grid .highlight{background:#eee1c8;border-color:#d7bb89}.team-page .agent-card{border-color:#e8dcc9;background:#fffdfa}.team-page .agent-stats{background:#f7f1e6}.team-page .agent-stats b,.team-page .agent-card-head strong{color:#30291f}.team-page .agent-state{background:#efe6d3;color:#684a29}.team-page .agent-state.disabled{background:#f6e5e0;color:#965b4c}.team-page .add-agent .field span,.account-editor .field span{display:block;text-align:right;font-size:11px;font-weight:700;color:#5b4c38;margin-bottom:6px}.account-editor{position:relative;text-align:right;max-height:90dvh;overflow:auto}.account-editor>p{text-align:right}.account-editor .field{margin:12px 0}.account-editor .btn{margin-top:8px}.account-close{position:absolute;left:16px;top:16px;border:0;background:#f4eddf;border-radius:10px;width:32px;height:32px;display:grid;place-items:center;color:#57442d}.account-divider{height:1px;background:#e9ddcb;margin:19px 0}.account-toggle{color:#8f5948!important}.credential-card .credential-line{text-align:right}.credential-card .btn{margin-top:10px}
 @media(max-width:800px){
   .bottom-tabs{background:#2b251fef;border-color:#9a784c77;box-shadow:0 13px 35px #2d211c52,inset 0 1px 0 #fffaf014}
   .bottom-tabs button{color:#c9b89e}
   .bottom-tabs button.active{background:#aa885344;color:#fff6e8;box-shadow:inset 0 1px 0 #e4c79540}
   .bottom-tabs button.active svg{color:#e4c184;filter:none}
   .bottom-tabs button:active{background:#aa885355}
+  .bottom-tabs .tab-create{background:#bd9860;color:#211b13;box-shadow:0 4px 16px #100c0840,inset 0 1px 0 #fff5dcaa;font-weight:800}
+  .bottom-tabs .tab-create svg{color:#211b13;width:23px;height:23px}
+  .bottom-tabs .tab-create:active{background:#d4ad70;transform:scale(.96)}
+  .team-money-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
+  .team-money-grid>div{padding:13px}.team-money-grid strong{font-size:16px}
 }

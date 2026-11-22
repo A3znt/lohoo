@@ -1,6 +1,6 @@
 import { removeOrder, createOrder, darb, editPendingShipment, env, json, listDeliveryLocations, listOrders, listWarehouseProducts, quoteOrder, readOrder, resalaReady, retryShipment, sameOrigin, shippingComponents, syncSmsDelivery,
   saveSettings, sendStageSms, settings, syncOrder, updateOrder } from './core.mjs';
-import { createAgent, getActor, listAgents, publicAgent, readAgent, resetAgentPassword, setAgentEnabled } from './team.mjs';
+import { createAgent, getActor, listAgents, publicAgent, readAgent, resetAgentPassword, setAgentEnabled, updateAgentProfile } from './team.mjs';
 import { listNotifications, markNotificationRead, removePushSubscription, savePushSubscription } from './notifications.mjs';
 
 function commissionSummary(orders) {
@@ -131,6 +131,9 @@ export default async function handler(request) {
       case 'resetAgentPassword':
         requireAdmin();
         return json({ ok: true, data: await resetAgentPassword(input.id, input.password) });
+      case 'updateAgentProfile':
+        requireAdmin();
+        return json({ ok: true, data: await updateAgentProfile(input.id, input.agent) });
       case 'setAgentEnabled':
         requireAdmin();
         return json({ ok: true, data: await setAgentEnabled(input.id, input.enabled) });
@@ -148,6 +151,21 @@ export default async function handler(request) {
         if (!entry.data.commissionEarnedAt || !entry.data.agentId) throw new Error('العمولة لا تُستحق إلا بعد التسليم.');
         if (entry.data.commissionPaidAt) throw new Error('هذه العمولة مسجلة كمدفوعة بالفعل.');
         return json({ ok: true, data: await updateOrder(input.id, { commissionPaidAt: new Date().toISOString() }) });
+      }
+      case 'payAgentCommissions': {
+        requireAdmin();
+        const agent = await readAgent(input.agentId);
+        if (!agent) throw new Error('حساب المندوبة غير موجود.');
+        const unpaid = (await listOrders()).filter((order) => order.agentId === agent.id && order.commissionEarnedAt && !order.commissionPaidAt);
+        if (!unpaid.length) throw new Error('لا توجد عمولات مستحقة للصرف.');
+        let count = 0;
+        let amount = 0;
+        for (const order of unpaid) {
+          await updateOrder(order.id, { commissionPaidAt: new Date().toISOString() });
+          count += 1;
+          amount += Number(order.commissionAmount || 0);
+        }
+        return json({ ok: true, data: { count, amount } });
       }
       default:
         return json({ ok: false, error: 'إجراء غير معروف.' }, 400);

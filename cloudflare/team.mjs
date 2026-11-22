@@ -5,6 +5,10 @@ const COOKIE = 'daftar_agent_session';
 const SESSION_SECONDS = 30 * 24 * 60 * 60;
 const agentKey = (id) => `agents/${id}`;
 const passwordHash = (password, salt) => scryptSync(password, salt, 64).toString('hex');
+const simplePassword = () => String(randomBytes(4).readUInt32BE() % 90000000 + 10000000);
+function validatePassword(password) {
+  if (!/^[0-9]{8}$/.test(password)) throw new Error('كلمة المرور يجب أن تكون 8 أرقام.');
+}
 const sign = (value) => createHmac('sha256', env('APP_TOKEN')).update(`agent:${value}`).digest('hex');
 
 export function publicAgent(agent) {
@@ -24,7 +28,8 @@ export async function createAgent(input) {
   const username = String(input?.username || '').trim().toLowerCase();
   if (name.length < 2 || !/^[a-z0-9._-]{3,32}$/.test(username)) throw new Error('اكتب اسم المندوبة واسم دخول إنجليزي من 3 أحرف على الأقل.');
   if ((await listAgents()).some((agent) => agent.username === username)) throw new Error('اسم الدخول مستخدم بالفعل.');
-  const password = randomBytes(18).toString('base64url');
+  const password = input?.password === undefined ? simplePassword() : String(input.password);
+  validatePassword(password);
   const salt = randomBytes(16).toString('hex');
   const agent = { id: randomUUID(), name, username, salt, passwordHash: passwordHash(password, salt),
     enabled: true, sessionVersion: 1, createdAt: new Date().toISOString() };
@@ -43,13 +48,22 @@ export async function changeAgent(id, change) {
   throw new Error('تغيّر الحساب أثناء الحفظ. حاول مرة ثانية.');
 }
 export async function resetAgentPassword(id, chosenPassword) {
-  const password = chosenPassword === undefined ? randomBytes(18).toString('base64url') : String(chosenPassword);
-  if (password.length < 16 || password.length > 128) throw new Error('كلمة المرور لازم تكون بين 16 و128 حرفًا.');
+  const password = chosenPassword === undefined ? simplePassword() : String(chosenPassword);
+  validatePassword(password);
   const salt = randomBytes(16).toString('hex');
   const current = await readAgent(id);
   if (!current) throw new Error('حساب المندوبة غير موجود.');
   const next = await changeAgent(id, { salt, passwordHash: passwordHash(password, salt), sessionVersion: current.sessionVersion + 1 });
   return { ...publicAgent(next), password };
+}
+export async function updateAgentProfile(id, input) {
+  const current = await readAgent(id);
+  if (!current) throw new Error('حساب المندوبة غير موجود.');
+  const name = String(input?.name || '').trim().slice(0, 80);
+  const username = String(input?.username || '').trim().toLowerCase();
+  if (name.length < 2 || !/^[a-z0-9._-]{3,32}$/.test(username)) throw new Error('اكتب اسم المندوبة واسم دخول إنجليزي من 3 أحرف على الأقل.');
+  if ((await listAgents()).some((agent) => agent.id !== id && agent.username === username)) throw new Error('اسم الدخول مستخدم بالفعل.');
+  return publicAgent(await changeAgent(id, { name, username }));
 }
 export async function setAgentEnabled(id, enabled) {
   const current = await readAgent(id);

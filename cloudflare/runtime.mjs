@@ -23,7 +23,7 @@ export function ordersStore() {
       return row ? { data: JSON.parse(row.data), etag: row.etag } : null;
     },
     async list({ prefix = '' } = {}) {
-      const rows = await db.prepare('SELECT key FROM records WHERE key LIKE ? ORDER BY key').bind(`${prefix}%`).all();
+      const rows = await db.prepare('SELECT key FROM records WHERE key >= ? AND key < ? ORDER BY key').bind(prefix, `${prefix}\uffff`).all();
       return { blobs: (rows.results || []).map(({ key }) => ({ key })) };
     },
     async setJSON(key, value, options = {}) {

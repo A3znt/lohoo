@@ -4,6 +4,42 @@ import { generateKeyPairSync, scryptSync } from 'node:crypto';
 import { binding, ordersStore, withContext } from '../cloudflare/runtime.mjs';
 import { adminPasswordValid, editPendingShipment, isAuthenticated, removeOrder, sameOrigin, sessionCookie, syncOrder } from '../cloudflare/core.mjs';
 import { carrierEvent, createCarrierNotification, listNotifications, markNotificationRead, removePushSubscription, savePushSubscription } from '../cloudflare/notifications.mjs';
+import ordersApi from '../cloudflare/api.mjs';
+import { loginAgent } from '../cloudflare/team.mjs';
+
+test('admin manages agent credentials and pays only delivered unpaid commissions', async () => {
+  await withContext({ DB: fakeD1(), APP_TOKEN: 'test-admin-token' }, async () => {
+    const call = async (action, input = {}) => {
+      const response = await ordersApi(new Request('https://rukn.example/api/orders', {
+        method: 'POST', headers: { Authorization: 'Bearer test-admin-token', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, ...input }),
+      }));
+      return { status: response.status, ...(await response.json()) };
+    };
+    const created = await call('createAgent', { agent: { name: 'منى', username: 'muna' } });
+    assert.equal(created.ok, true);
+    assert.match(created.data.password, /^\d{8}$/);
+    const id = created.data.id;
+    assert.ok(await loginAgent('muna', created.data.password));
+    const renamed = await call('updateAgentProfile', { id, agent: { name: 'منى الجديدة', username: 'muna2' } });
+    assert.equal(renamed.data.username, 'muna2');
+    const changed = await call('resetAgentPassword', { id, password: '12345678' });
+    assert.equal(changed.data.password, '12345678');
+    assert.equal(await loginAgent('muna2', created.data.password), null);
+    assert.ok(await loginAgent('muna2', '12345678'));
+    assert.equal((await call('resetAgentPassword', { id, password: '123' })).ok, false);
+    const delivered = '11111111-1111-4111-8111-111111111111';
+    const pending = '22222222-2222-4222-8222-222222222222';
+    await ordersStore().setJSON(`orders/${delivered}`, { id: delivered, createdAt: '2026-11-22', agentId: id, status: 'delivered', commissionAmount: 15, commissionEarnedAt: '2026-11-22', commissionPaidAt: '' });
+    await ordersStore().setJSON(`orders/${pending}`, { id: pending, createdAt: '2026-11-22', agentId: id, status: 'confirmed', commissionAmount: 0, commissionEarnedAt: '', commissionPaidAt: '' });
+    const payout = await call('payAgentCommissions', { agentId: id });
+    assert.equal(payout.ok, true, payout.error);
+    assert.deepEqual(payout.data, { count: 1, amount: 15 });
+    assert.ok((await ordersStore().get(`orders/${delivered}`)).commissionPaidAt);
+    assert.equal((await ordersStore().get(`orders/${pending}`)).commissionPaidAt, '');
+    assert.equal((await call('payAgentCommissions', { agentId: id })).ok, false);
+  });
+});
 
 function fakeD1() {
   const records = new Map();
@@ -20,7 +56,7 @@ function fakeD1() {
               throw new Error(`Unexpected query: ${sql}`);
             },
             async all() {
-              const prefix = String(values[0]).replace(/%$/, '');
+              const prefix = String(values[0]);
               return {
                 results: [...records.keys()].filter((key) => key.startsWith(prefix))
                   .sort().map((key) => ({ key })),
