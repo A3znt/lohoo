@@ -1,0 +1,92 @@
+/* Rukn identity: warm stone, ink and muted gold. Loaded after the legacy theme. */
+:root{--aurora-ink:#282521;--aurora-muted:#756f64;--aurora-blue:#a48957;--aurora-cyan:#c5a96d;--aurora-navy:#211e1b;--aurora-night:#29241f;--aurora-border:rgba(89,75,51,.15);--aurora-glass:#fffdfa;--aurora-shadow:0 18px 44px rgba(59,46,25,.065),0 3px 10px rgba(59,46,25,.035);background:#f7f3eb;color:#282521}
+html,body{background:#f7f3eb}
+body{background:radial-gradient(ellipse at 90% -20%,#fffdfa 0,transparent 55%),#f7f3eb}
+button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline-color:#b99759!important}
+::selection{background:#e6d7b9;color:#211e1b}
+.sidebar{background:linear-gradient(160deg,#29251f,#1f1d1a 68%,#322a20);border-left:1px solid #554938;box-shadow:-8px 0 28px rgba(48,37,25,.08)}
+.sidebar-brand{padding:27px 20px 25px;gap:12px}
+.brand-mark{width:76px;height:56px;border:1px solid #d9c9ab;border-radius:13px;background:#f8f4ec;box-shadow:0 8px 20px rgba(0,0,0,.1);display:grid;place-items:center;overflow:hidden}
+.brand-mark img{display:block;width:94%;height:72%;object-fit:contain}
+.sidebar-brand strong{font-size:26px;letter-spacing:0;color:#f8f3e8}
+.sidebar-brand small{color:#bdaf99}
+.workspace-label{background:#ffffff0c;border-color:#b9a37633;color:#c8bba5}
+.workspace-label span{color:#dec38c}
+.side-nav p{color:#a39680}
+.side-nav button{color:#cbbfae}
+.side-nav button svg{color:#bca781}
+.side-nav button:hover{background:#a9895333;color:#fff9ed}
+.side-nav button:hover svg,.side-nav button.active svg{color:#e0c181}
+.side-nav button.active,.side-nav button.active:hover{background:linear-gradient(105deg,#aa8b5740,#ae8c4b1f);border-color:#c4a36966;box-shadow:inset 0 1px 0 #ffffff13;color:#fffaf0}
+.sidebar-tip{background:#3a3227;border-color:#7e6845;color:#f8edd6;box-shadow:none}
+.sidebar-tip svg,.sidebar-tip strong{color:#e1c186}
+.sidebar-tip span,.sidebar-user small{color:#bcae99}
+.sidebar-user{border-top-color:#9c896340}
+.avatar,.top-avatar,.customer-avatar{background:#eae0cd;color:#6e522b;border-color:#f4e9d5}
+.topbar{background:rgba(250,247,240,.91);border-bottom:1px solid #e9e1d4;backdrop-filter:blur(16px)}
+.breadcrumb,.date-pill,.sync-time{color:#81796c}
+.breadcrumb b{color:#322c23}
+.sync-button{background:#fffdfa;border-color:#ded0b9;color:#785c35;box-shadow:none}
+.sync-button:hover:not(:disabled){background:#f4ead9}
+.content{max-width:1420px}
+.hero{background:linear-gradient(110deg,#2d2924,#25221e 60%,#44392a);border-color:#786442;box-shadow:0 24px 54px rgba(39,32,21,.16)}
+.hero:before,.hero:after{border-color:#b9a17126;box-shadow:0 0 0 70px #b9985e09,0 0 0 145px #b9985e07}
+.hero .eyebrow,.hero h1 em,.insights-kicker,.insights-number small{color:#dfc38c}
+.hero p{color:#ded3c1}
+.pulse-dot{background:#d3b374;box-shadow:0 0 0 5px #caa76925}
+.hero-orbit{background:linear-gradient(140deg,#d6bd8e66,#7d674266);border-color:#dfc68c99;box-shadow:0 18px 40px #120e0866;color:#e7ce98}
+.hero-orbit svg{filter:none}
+.hero-visual .holo-ring{border-color:#c8a66e55}
+.hero-visual .holo-spark{background:#d6bc85;box-shadow:0 0 16px #c2a37199}
+.hero-card{background:#ffffff1c;border-color:#e4cc9b55}
+.hero-card small{color:#e5d6bc}
+.hero-card .mini-icon,.hero-card .mini-icon.gold{background:#bc9a6140;color:#f0d29a}
+.hero .btn.light,.btn.primary{background:#aa8853;border:1px solid #ad8d5a;color:#fffdf8;box-shadow:0 8px 20px #7c5c2a31}
+.hero .btn.light:hover,.btn.primary:hover{background:#927243}
+.btn.ghost{background:#fffdfa;border-color:#e3d7c5;color:#655033}
+.btn.ghost:hover{background:#f3eadb}
+.panel,.settings-panel,.agent-card,.metric{background:#fffdfa;border-color:#e9e0d2;box-shadow:var(--aurora-shadow);backdrop-filter:none}
+.metric>strong,.panel-head h2,.page-title h1{color:#302920}
+.metric>span,.metric>small,.page-title p,.muted{color:#81776a}
+.page-title .overline,.overline,.text-button,.flow-action{color:#9a7643}
+.icon-box.teal,.icon-box.blue,.icon-box.amber,.icon-box.rose{background:#f1e9da;color:#957143}
+.insights-panel{background:linear-gradient(118deg,#302b25,#4a3c2b);border-color:#796545;box-shadow:0 18px 40px #2e241a25}
+.insights-copy p,.activity-day-label{color:#d1c1a9}
+.activity-track{background:linear-gradient(to top,#d4b27522,transparent)}
+.activity-bar{background:linear-gradient(180deg,#ecd4a3,#b89359);box-shadow:none}
+.table-head{background:#f6f0e5;color:#827766;border-color:#e9decf}
+.order-row{background:#fffdfa;border-color:#eee5d8}
+.order-row:hover{background:#f8f0e1}
+.order-customer strong,.money-cell{color:#3b3127}
+.order-customer small,.date-cell,.source{color:#8d8274}
+.status{background:#f3e9d8;color:#846033}
+.status-on_way{background:#e6efe8;color:#3d7359}
+.status-delivered{background:#e1f0e7;color:#337457}
+.shipping-banner{background:linear-gradient(105deg,#3b3228,#5c4a34);border-color:#8c7453}
+.shipping-banner p{color:#e0d2bd}
+.shipping-logo,.connection-dot{background:#e1c08833;color:#ecd5a4}
+.connection-dot:before{background:#d8b56f}
+.login-screen,.login-form-side{background:#f7f3eb}
+.login-art{background:linear-gradient(140deg,#24211d,#3d3328 72%,#5b4930)}
+.login-art:before,.login-art:after{border-color:#c3a4772b;box-shadow:none}
+.login-brand .brand-mark{width:112px;height:66px}
+.login-brand strong{color:#f8f1e5}
+.login-art-copy h1 em,.login-art .overline{color:#e3c48a}
+.login-art-copy p,.login-art-footer{color:#d2c2aa}
+.login-features span{background:#dfc28d18;border-color:#d9bc8a44;color:#eadbc3}
+.login-features svg{color:#dfbf82}
+.login-card{background:#fffdfa;border-color:#e8dfd1;box-shadow:0 24px 55px #5d4a2c18;backdrop-filter:none}
+.login-lock{background:#f1e8d7;color:#9c7843}
+.login-card h2{color:#2f2922}
+.login-card p,.login-card label,.login-secure{color:#7f7569}
+.login-card input{border-color:#ded3c1;color:#302922}
+.login-tabs{background:#f1e9da}
+.login-tabs button{color:#796d5c}
+.login-tabs button.selected{background:#fffdfa;color:#5a4328}
+.drawer,.confirm-card{background:#fffcf7}
+.drawer-head,.drawer-footer{background:#fffdfa;border-color:#e9dfd1}
+.detail-section,.quote-card,.confirm-details{border-color:#e9dfd1;background:#fffdfa}
+.loading-screen{color:#6f604b}
+.loading-screen .brand-mark{width:116px;height:84px;box-shadow:0 12px 30px #614a2425}
+.spinner{border-color:#e8d9bd;border-top-color:#a78856}
+@media(max-width:620px){.sidebar-brand .brand-mark{width:65px;height:48px}.hero{border-radius:20px}.content{padding:20px 15px 70px}.metric{border-radius:16px}.login-art{min-height:210px}.login-brand .brand-mark{width:90px;height:54px}}

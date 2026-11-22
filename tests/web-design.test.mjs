@@ -5,9 +5,12 @@ import { readFile } from 'node:fs/promises';
 const root = new URL('../', import.meta.url);
 const read = (path) => readFile(new URL(path, root), 'utf8');
 
-test('the reference-inspired Aurora visual layer loads after legacy component styles', async () => {
-  const [main, theme] = await Promise.all([read('web/src/main.tsx'), read('web/src/aurora-theme.css')]);
+test('the Rukn identity loads after component and Aurora styles', async () => {
+  const [main, theme, rukn] = await Promise.all([read('web/src/main.tsx'), read('web/src/aurora-theme.css'), read('web/src/rukn-theme.css')]);
   assert.ok(main.indexOf("import './aurora-theme.css'") > main.indexOf("import './style.css'"));
+  assert.ok(main.indexOf("import './rukn-theme.css'") > main.indexOf("import './aurora-theme.css'"));
+  assert.match(main, /rukn-logo\.png/);
+  assert.match(rukn, /--aurora-blue:#a48957/);
   assert.match(theme, /--aurora-blue:#2c80ff/);
   assert.match(theme, /prefers-reduced-motion:reduce/);
   assert.match(theme, /safe-area-inset-bottom/);
@@ -28,10 +31,12 @@ test('standalone web app colors match browser theme and refresh offline cache', 
     read('web/index.html'), read('web/public/manifest.webmanifest'), read('web/public/sw.js'),
   ]);
   const manifest = JSON.parse(manifestText);
-  assert.equal(manifest.theme_color, '#0b1732');
-  assert.equal(manifest.background_color, '#eaf1fd');
-  assert.match(html, /name="theme-color" content="#0b1732"/);
-  assert.match(worker, /daftar-static-v4/);
+  assert.equal(manifest.theme_color, '#211e1b');
+  assert.equal(manifest.background_color, '#f7f3eb');
+  assert.equal(manifest.short_name, 'ركن');
+  assert.match(html, /name="theme-color" content="#211e1b"/);
+  assert.match(html, /<title>ركن/);
+  assert.match(worker, /daftar-static-v5/);
   assert.equal(manifest.dir, 'rtl');
 });
 

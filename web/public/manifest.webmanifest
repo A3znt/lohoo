@@ -1,14 +1,14 @@
 {
-  "name": "دفتر الطلبات",
-  "short_name": "دفتر",
+  "name": "ركن | إدارة الطلبات",
+  "short_name": "ركن",
   "description": "إدارة الطلبات والشحن والرسائل",
   "lang": "ar",
   "dir": "rtl",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
-  "background_color": "#eaf1fd",
-  "theme_color": "#0b1732",
+  "background_color": "#f7f3eb",
+  "theme_color": "#211e1b",
   "icons": [
     { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
     { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }

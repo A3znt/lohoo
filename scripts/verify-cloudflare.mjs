@@ -18,7 +18,7 @@ function cookie(response, name) {
 }
 
 const home = await fetch(base);
-if (!home.ok || !(await home.text()).includes('دفتر')) throw new Error('Web app did not load.');
+if (!home.ok || !(await home.text()).includes('ركن')) throw new Error('Web app did not load.');
 const adminLogin = await post('/api/auth', { token: password });
 const adminCookie = cookie(adminLogin.response, 'daftar_session');
 if (!adminCookie) throw new Error('Admin session cookie missing.');
