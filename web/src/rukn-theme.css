@@ -167,6 +167,28 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
 .insights-kicker svg{filter:none}
 .source.facebook svg,.source.instagram svg{color:#9a7546}
 .order-form-new .field input:focus,.order-form-new .field select:focus{outline-color:#b18b52}
+.copy-button{background:#f4ecde;border-color:#e3d2b7;color:#7b5930}
+.copy-button:hover:not(:disabled){background:#ecdfc8;border-color:#b8925b}
+.copy-button.copied{background:#e8efdf;border-color:#a9c395;color:#4c7447}
+.copy-button.error{background:#f9e7dc;border-color:#d6ab92;color:#a65b3d}
+.copy-button:focus-visible,.order-row:focus-visible,.sort-control select:focus-visible,.phone-call-link:focus-visible{outline-color:#b18b52}
+.order-row:focus-visible{background:#f8f0e1}
+.order-id-line b,.row-tracking b{color:#70502b}
+.order-meta,.row-tracking small{color:#867866}
+.metric-top .copy-button{background:#f5ecdc}
+.metric-top .copy-button:hover{background:#ecddc2}
+.sort-control{color:#75634d}
+.sort-control select{background:#fffaf1;border-color:#dfccb0;color:#5d472d}
+.load-more{border-color:#e8dcc9;color:#806e56}
+.detail-value b,.detail-value b.strong{color:#4a3622}
+.initial-data-loading{background:#fffdfa;border-color:#e6d9c6;color:#6e5a3c}
+.initial-data-loading .spinner{border-color:#e7d8bf;border-top-color:#a88755}
+.loading-screen{background:radial-gradient(circle at 50% 25%,#f3ead8,transparent 50%),#f7f3eb;color:#6f604b}
+.phone-call-link{background:#f4e9d6;border-color:#d9c19c;color:#76532c}
+.phone-call-link:hover{background:#ecddc3;color:#5f421f}
+.skip-link{background:#f8efde;color:#624421;border-color:#a9844d;box-shadow:0 9px 25px #47331c3b}
+.row-open-action:hover{background:#aa88530d}
+.row-open-action:focus-visible{outline-color:#b18b52;background:#aa88531a}
 @media(max-width:800px){
   .bottom-tabs{background:#2b251fef;border-color:#9a784c77;box-shadow:0 13px 35px #2d211c52,inset 0 1px 0 #fffaf014}
   .bottom-tabs button{color:#c9b89e}
