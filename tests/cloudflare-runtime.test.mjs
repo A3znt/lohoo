@@ -5,7 +5,7 @@ import { binding, ordersStore, withContext } from '../cloudflare/runtime.mjs';
 import { adminPasswordValid, editPendingShipment, isAuthenticated, removeOrder, sameOrigin, sessionCookie, syncOrder } from '../cloudflare/core.mjs';
 import { carrierEvent, createCarrierNotification, listNotifications, markNotificationRead, removePushSubscription, savePushSubscription } from '../cloudflare/notifications.mjs';
 import ordersApi from '../cloudflare/api.mjs';
-import { loginAgent } from '../cloudflare/team.mjs';
+import { agentSessionCookie, loginAgent } from '../cloudflare/team.mjs';
 
 test('admin manages agent credentials and pays only delivered unpaid commissions', async () => {
   await withContext({ DB: fakeD1(), APP_TOKEN: 'test-admin-token' }, async () => {
@@ -16,18 +16,39 @@ test('admin manages agent credentials and pays only delivered unpaid commissions
       }));
       return { status: response.status, ...(await response.json()) };
     };
-    const created = await call('createAgent', { agent: { name: 'منى', username: 'muna' } });
+    const created = await call('createAgent', { agent: { name: 'منى', username: 'muna', password: 'muna@123' } });
     assert.equal(created.ok, true);
-    assert.match(created.data.password, /^\d{8}$/);
+    assert.equal(created.data.password, undefined);
+    assert.equal((await call('createAgent', { agent: { name: 'سجى', username: 'saja' } })).ok, false);
     const id = created.data.id;
-    assert.ok(await loginAgent('muna', created.data.password));
+    assert.ok(await loginAgent('muna', 'muna@123'));
     const renamed = await call('updateAgentProfile', { id, agent: { name: 'منى الجديدة', username: 'muna2' } });
     assert.equal(renamed.data.username, 'muna2');
-    const changed = await call('resetAgentPassword', { id, password: '12345678' });
-    assert.equal(changed.data.password, '12345678');
-    assert.equal(await loginAgent('muna2', created.data.password), null);
-    assert.ok(await loginAgent('muna2', '12345678'));
+    const changed = await call('resetAgentPassword', { id, password: 'muna#456' });
+    assert.equal(changed.data.password, undefined);
+    assert.equal(await loginAgent('muna2', 'muna@123'), null);
+    const agent = await loginAgent('muna2', 'muna#456');
+    assert.ok(agent);
     assert.equal((await call('resetAgentPassword', { id, password: '123' })).ok, false);
+    assert.equal((await call('resetAgentPassword', { id })).ok, false);
+    const oldCookie = agentSessionCookie(agent).split(';')[0];
+    const agentCall = async (cookie, currentPassword, newPassword) => {
+      const response = await ordersApi(new Request('https://rukn.example/api/orders', {
+        method: 'POST', headers: { Cookie: cookie, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'changeMyPassword', currentPassword, newPassword }),
+      }));
+      return { response, body: await response.json() };
+    };
+    assert.equal((await agentCall(oldCookie, 'wrong-old', 'new!pass9')).body.ok, false);
+    assert.equal((await agentCall(oldCookie, 'muna#456', 'muna#456')).body.ok, false);
+    const selfChanged = await agentCall(oldCookie, 'muna#456', 'new!pass9');
+    assert.equal(selfChanged.body.ok, true);
+    assert.equal(await loginAgent('muna2', 'muna#456'), null);
+    assert.ok(await loginAgent('muna2', 'new!pass9'));
+    const newCookie = selfChanged.response.headers.getSetCookie().find(value => value.startsWith('daftar_agent_session='))?.split(';')[0];
+    assert.ok(newCookie && newCookie !== oldCookie);
+    assert.equal((await agentCall(oldCookie, 'new!pass9', 'another99')).response.status, 401);
+    assert.equal((await agentCall(newCookie, 'new!pass9', 'another99')).body.ok, true);
     const delivered = '11111111-1111-4111-8111-111111111111';
     const pending = '22222222-2222-4222-8222-222222222222';
     await ordersStore().setJSON(`orders/${delivered}`, { id: delivered, createdAt: '2026-11-22', agentId: id, status: 'delivered', commissionAmount: 15, commissionEarnedAt: '2026-11-22', commissionPaidAt: '' });

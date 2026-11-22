@@ -18,6 +18,7 @@ import OrderForm from './OrderForm';
 import CopyButton from './CopyButton';
 import NotificationsPanel from './NotificationsPanel';
 import TeamPage from './TeamPage';
+import AgentSettingsPage from './AgentSettingsPage';
 import { exportOrdersCsv } from './order-export.mjs';
 import { dashboardMetrics, filterOrders, sortOrders, weeklyOrderActivity, type OrderSort } from './order-view';
 import { ApiError, api, login, loginAgent, logout, money, orderNumber, orderTotal, session, type Actor, type AgentSummary, type Bootstrap, type NotificationRecord, type Order, type OrderInput, type OrderStatus, type Package, type Settings } from './api';
@@ -298,7 +299,7 @@ function App() {
         <p>القائمة الرئيسية</p>
         {([
           ['overview', LayoutDashboard, 'نظرة عامة'], ['orders', ClipboardList, 'الطلبات'],
-          ['shipping', Truck, 'الشحن والتوصيل'], ...(data.actor.role === 'admin' ? [['team', Users, 'المندوبات'], ['settings', Settings2, 'الإعدادات']] as const : []),
+          ['shipping', Truck, 'الشحن والتوصيل'], ...(data.actor.role === 'admin' ? [['team', Users, 'المندوبات']] as const : []), ['settings', Settings2, 'الإعدادات'],
         ] as const).map(([key, Icon, label]) => <button type="button" key={key} className={view === key ? 'active' : ''} aria-current={view === key ? 'page' : undefined} onClick={() => navigate(key)}><Icon size={19} strokeWidth={1.9} /><span>{label}</span>{key === 'orders' && <b>{metrics.total}</b>}</button>)}
       </nav>
       <div className="sidebar-bottom">
@@ -376,13 +377,14 @@ function App() {
 
         {lastSyncedAt && view === 'team' && data.actor.role === 'admin' && <TeamPage agents={data.agents} busy={busy} run={action} />}
         {lastSyncedAt && view === 'settings' && data.actor.role === 'admin' && <SettingsPage settings={data.settings} resalaConfigured={data.resalaConfigured} busy={busy} onSave={async (next) => { try { await action(() => api<Settings>('saveSettings', { settings: next }), 'تم حفظ الإعدادات'); } catch { /* toast */ } }} />}
+        {lastSyncedAt && view === 'settings' && data.actor.role === 'agent' && <AgentSettingsPage busy={busy} run={action} />}
       </div>
     </main>
     <nav className="bottom-tabs" aria-label="التنقل السريع">
       {([
         ['overview', LayoutDashboard, 'الرئيسية'], ['orders', ClipboardList, 'الطلبات'],
         ['create', Plus, 'طلب جديد'],
-        ['shipping', Truck, 'الشحن'], ...(data.actor.role === 'admin' ? [['team', Users, 'الفريق'], ['settings', Settings2, 'الإعدادات']] as const : []),
+        ...(data.actor.role === 'admin' ? [['team', Users, 'الفريق']] as const : []), ['settings', Settings2, 'حسابي'],
       ] as const).map(([key, Icon, label]) =>
         <button type="button" key={key} className={`${view === key ? 'active' : ''} ${key === 'create' ? 'tab-create' : ''}`} aria-current={view === key ? 'page' : undefined} onClick={() => key === 'create' ? setFormOpen(true) : navigate(key)}>
           <Icon size={21} strokeWidth={1.8} aria-hidden="true" />

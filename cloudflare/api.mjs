@@ -1,6 +1,6 @@
 import { removeOrder, createOrder, darb, editPendingShipment, env, json, listDeliveryLocations, listOrders, listWarehouseProducts, quoteOrder, readOrder, resalaReady, retryShipment, sameOrigin, shippingComponents, syncSmsDelivery,
   saveSettings, sendStageSms, settings, syncOrder, updateOrder } from './core.mjs';
-import { createAgent, getActor, listAgents, publicAgent, readAgent, resetAgentPassword, setAgentEnabled, updateAgentProfile } from './team.mjs';
+import { agentSessionCookie, changeOwnAgentPassword, createAgent, getActor, listAgents, publicAgent, readAgent, resetAgentPassword, setAgentEnabled, updateAgentProfile } from './team.mjs';
 import { listNotifications, markNotificationRead, removePushSubscription, savePushSubscription } from './notifications.mjs';
 
 function commissionSummary(orders) {
@@ -131,6 +131,13 @@ export default async function handler(request) {
       case 'resetAgentPassword':
         requireAdmin();
         return json({ ok: true, data: await resetAgentPassword(input.id, input.password) });
+      case 'changeMyPassword': {
+        if (isAdmin) throw new Error('هذا الإجراء مخصص للمندوبات.');
+        const agent = await changeOwnAgentPassword(actor.id, input.currentPassword, input.newPassword);
+        const response = json({ ok: true, data: { changed: true } });
+        response.headers.append('Set-Cookie', agentSessionCookie(agent));
+        return response;
+      }
       case 'updateAgentProfile':
         requireAdmin();
         return json({ ok: true, data: await updateAgentProfile(input.id, input.agent) });
