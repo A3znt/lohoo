@@ -1,6 +1,7 @@
-import { removeOrder, createOrder, darb, editPendingShipment, json, listDeliveryLocations, listOrders, listWarehouseProducts, quoteOrder, readOrder, resalaReady, retryShipment, sameOrigin, shippingComponents, syncSmsDelivery,
+import { removeOrder, createOrder, darb, editPendingShipment, env, json, listDeliveryLocations, listOrders, listWarehouseProducts, quoteOrder, readOrder, resalaReady, retryShipment, sameOrigin, shippingComponents, syncSmsDelivery,
   saveSettings, sendStageSms, settings, syncOrder, updateOrder } from './core.mjs';
 import { createAgent, getActor, listAgents, publicAgent, readAgent, resetAgentPassword, setAgentEnabled } from './team.mjs';
+import { listNotifications, markNotificationRead, removePushSubscription, savePushSubscription } from './notifications.mjs';
 
 function commissionSummary(orders) {
   const earned = orders.reduce((sum, order) => sum + (order.commissionEarnedAt ? Number(order.commissionAmount || 0) : 0), 0);
@@ -29,9 +30,19 @@ export default async function handler(request) {
         const orders = isAdmin ? allOrders : allOrders.filter((order) => order.agentId === actor.id);
         const agents = isAdmin ? await listAgents() : [];
         return json({ ok: true, data: { actor, orders: orders.filter(o => !o.deletedAt), settings: await settings(), resalaConfigured: resalaReady(),
+          notifications: isAdmin ? [] : await listNotifications(actor.id), vapidPublicKey: isAdmin ? '' : env('VAPID_PUBLIC_KEY'),
           agents: agents.map((agent) => ({ ...publicAgent(agent), ...commissionSummary(allOrders.filter((order) => order.agentId === agent.id)) })),
           commission: commissionSummary(orders) } });
       }
+      case 'markNotificationRead':
+        if (isAdmin) throw new Error('الإشعارات مخصصة للمندوبات.');
+        return json({ ok: true, data: await markNotificationRead(actor.id, input.id) });
+      case 'savePushSubscription':
+        if (isAdmin) throw new Error('الإشعارات مخصصة للمندوبات.');
+        return json({ ok: true, data: await savePushSubscription(actor.id, input.subscription) });
+      case 'removePushSubscription':
+        if (isAdmin) throw new Error('الإشعارات مخصصة للمندوبات.');
+        return json({ ok: true, data: await removePushSubscription(actor.id, input.endpoint) });
       case 'trash':
         requireAdmin();
         return json({ ok: true, data: (await listOrders()).filter(o => o.deletedAt) });

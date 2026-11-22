@@ -1,8 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { scryptSync } from 'node:crypto';
+import { generateKeyPairSync, scryptSync } from 'node:crypto';
 import { binding, ordersStore, withContext } from '../cloudflare/runtime.mjs';
-import { adminPasswordValid, editPendingShipment, isAuthenticated, removeOrder, sameOrigin, sessionCookie } from '../cloudflare/core.mjs';
+import { adminPasswordValid, editPendingShipment, isAuthenticated, removeOrder, sameOrigin, sessionCookie, syncOrder } from '../cloudflare/core.mjs';
+import { carrierEvent, createCarrierNotification, listNotifications, markNotificationRead, removePushSubscription, savePushSubscription } from '../cloudflare/notifications.mjs';
 
 function fakeD1() {
   const records = new Map();
@@ -148,6 +149,93 @@ test('pending edits reach Darb before local save; missing shipments are never si
       missing = true;
       await assert.rejects(removeOrder(id), /لم نحذف السجل/);
       assert.equal((await store.get(`orders/${id}`)).deletedAt, undefined);
+    });
+  } finally { globalThis.fetch = previousFetch; }
+});
+
+test('Darb postponement, failed delivery and cancellation notify only the responsible agent once', async () => {
+  const id = '11111111-1111-4111-8111-111111111111';
+  const muna = '22222222-2222-4222-8222-222222222222';
+  const saja = '33333333-3333-4333-8333-333333333333';
+  const previousFetch = globalThis.fetch;
+  let status = 'delayed';
+  let reason = 'طلب الزبون التأجيل';
+  globalThis.fetch = async () => Response.json({ status: true, data: { results: [{ _id: 'aaaaaaaaaaaaaaaaaaaaaaaa', reference: '1234567', status,
+    timeline: [{ type: status, remarks: reason, _id: `event-${status}` }] }] } });
+  try {
+    await withContext({ DB: fakeD1(), DARB_API_KEY: 'fixture', DARB_ACCOUNT_ID: 'fixture' }, async () => {
+      await ordersStore().setJSON(`orders/${id}`, { id, orderNumber: '123456789012', customer: 'زبون', agentId: muna,
+        shipmentReference: '1234567', shipmentId: 'aaaaaaaaaaaaaaaaaaaaaaaa', status: 'confirmed', darbStatus: 'pending',
+        updatedAt: '2026-11-20T00:00:00Z' });
+      await syncOrder(id);
+      let notices = await listNotifications(muna);
+      assert.equal(notices.length, 1);
+      assert.match(notices[0].body, /طلب الزبون التأجيل/);
+      assert.equal((await ordersStore().get(`orders/${id}`)).status, 'postponed');
+      await syncOrder(id);
+      assert.equal((await listNotifications(muna)).length, 1);
+      assert.deepEqual(await listNotifications(saja), []);
+      await assert.rejects(markNotificationRead(saja, notices[0].id), /غير موجود/);
+      assert.ok((await markNotificationRead(muna, notices[0].id)).readAt);
+      status = 'pending'; reason = '';
+      await syncOrder(id);
+      assert.equal((await ordersStore().get(`orders/${id}`)).status, 'confirmed');
+      status = 'undelivered'; reason = 'تعذر التواصل مع الزبون';
+      await syncOrder(id);
+      notices = await listNotifications(muna);
+      assert.equal(notices.length, 2);
+      assert.ok(notices.some((item) => item.kind === 'delivery_failed' && item.reason === reason));
+      status = 'cancelled'; reason = 'إلغاء من شركة التوصيل';
+      await syncOrder(id);
+      notices = await listNotifications(muna);
+      assert.equal(notices.length, 3);
+      assert.equal((await ordersStore().get(`orders/${id}`)).status, 'cancelled');
+    });
+  } finally { globalThis.fetch = previousFetch; }
+});
+
+test('phone push registrations are scoped to an agent and carrier reasons are extracted safely', async () => {
+  const muna = '22222222-2222-4222-8222-222222222222';
+  const saja = '33333333-3333-4333-8333-333333333333';
+  const subscription = { endpoint: 'https://fcm.googleapis.com/fcm/send/example', expirationTime: null,
+    keys: { p256dh: 'a'.repeat(87), auth: 'b'.repeat(22) } };
+  await withContext({ DB: fakeD1() }, async () => {
+    await savePushSubscription(muna, subscription);
+    await removePushSubscription(saja, subscription.endpoint);
+    const pushRows = await ordersStore().list({ prefix: 'push/' });
+    assert.equal((await ordersStore().get(pushRows.blobs[0].key)).agentId, muna);
+    await removePushSubscription(muna, subscription.endpoint);
+    assert.equal((await ordersStore().get(pushRows.blobs[0].key)).agentId, '');
+    await assert.rejects(savePushSubscription(muna, { ...subscription, endpoint: 'https://example.com/push' }), /غير صالحة/);
+  });
+  assert.equal(carrierEvent({ status: 'delayed', timeline: [{ type: 'delayed', description: 'تم التأجيل', remarks: 'الزبون غير متاح', _id: 'event-1' }] }).reason, 'الزبون غير متاح');
+  assert.equal(carrierEvent({ status: 'delayed', timeline: [{ type: 'delayed', remarks: 'الزبون غير متاح', _id: 'event-1' }] }).eventId, 'event-1');
+  assert.equal(carrierEvent({ status: 'pending', timeline: [{ status: 'مؤجل', description: 'حالة سابقة' }] }), null);
+});
+
+test('a new carrier notification sends an encrypted web push to the subscribed agent', async () => {
+  const agentId = '22222222-2222-4222-8222-222222222222';
+  const { privateKey } = generateKeyPairSync('ec', { namedCurve: 'prime256v1' });
+  const jwk = privateKey.export({ format: 'jwk' });
+  const vapidPublicKey = Buffer.concat([Buffer.from([4]), Buffer.from(jwk.x, 'base64url'), Buffer.from(jwk.y, 'base64url')]).toString('base64url');
+  const receiver = await crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveBits']);
+  const p256dh = Buffer.from(await crypto.subtle.exportKey('raw', receiver.publicKey)).toString('base64url');
+  const auth = Buffer.from(crypto.getRandomValues(new Uint8Array(16))).toString('base64url');
+  const subscription = { endpoint: 'https://fcm.googleapis.com/fcm/send/example', keys: { p256dh, auth } };
+  const previousFetch = globalThis.fetch;
+  let sent;
+  globalThis.fetch = async (url, options) => { sent = { url, options }; return new Response(null, { status: 201 }); };
+  try {
+    await withContext({ DB: fakeD1(), VAPID_PUBLIC_KEY: vapidPublicKey, VAPID_PRIVATE_KEY: jwk.d,
+      VAPID_SUBJECT: 'https://example.com' }, async () => {
+      await savePushSubscription(agentId, subscription);
+      await createCarrierNotification({ id: '11111111-1111-4111-8111-111111111111', orderNumber: '123456789012',
+        customer: 'زبون', agentId }, { kind: 'postponed', reason: 'طلب تأجيل', eventId: '' });
+      assert.equal(sent.url, subscription.endpoint);
+      assert.equal(sent.options.method.toUpperCase(), 'POST');
+      assert.match(String(sent.options.headers.authorization), /^vapid /);
+      assert.ok(sent.options.body.byteLength > 0);
+      assert.equal((await listNotifications(agentId)).length, 1);
     });
   } finally { globalThis.fetch = previousFetch; }
 });

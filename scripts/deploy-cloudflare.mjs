@@ -10,7 +10,8 @@ const vars = Object.fromEntries((await readFile(new URL('../.dev.vars', import.m
   .split(/\r?\n/).filter((line) => /^[A-Z_]+=/.test(line))
   .map((line) => { const split = line.indexOf('='); return [line.slice(0, split), JSON.parse(line.slice(split + 1))]; }));
 for (const name of ['APP_TOKEN', 'ADMIN_PASSWORD_SALT', 'ADMIN_PASSWORD_HASH', 'DARB_API_KEY', 'DARB_ACCOUNT_ID',
-  'RESALA_API_KEY', 'RESALA_CONFIRM_ADDRESS_TEMPLATE_ID', 'RESALA_ON_WAY_TEMPLATE_ID']) {
+  'RESALA_API_KEY', 'RESALA_CONFIRM_ADDRESS_TEMPLATE_ID', 'RESALA_ON_WAY_TEMPLATE_ID',
+  'VAPID_PUBLIC_KEY', 'VAPID_PRIVATE_KEY', 'VAPID_SUBJECT']) {
   if (!vars[name]) throw new Error(`Missing ${name} in .dev.vars.`);
 }
 
@@ -32,5 +33,5 @@ async function request(path, method, body) {
   return payload.result;
 }
 await request(endpoint, 'PUT', form);
-await request(`${endpoint}/schedules`, 'PUT', JSON.stringify([{ cron: '*/15 * * * *' }]));
+await request(`${endpoint}/schedules`, 'PUT', JSON.stringify([{ cron: '*/3 * * * *' }]));
 console.log(`Deployed https://${worker}.daftar-orders-a3z.workers.dev`);

@@ -14,6 +14,8 @@ const statuses = {
   creating: 'جاري إنشاء الشحنة',
   confirmed: 'تم التأكيد',
   on_way: 'في الطريق',
+  postponed: 'مؤجل',
+  delivery_failed: 'تعذر التوصيل',
   delivered: 'تم التسليم',
   returned: 'مرتجع',
   cancelled: 'ملغي',

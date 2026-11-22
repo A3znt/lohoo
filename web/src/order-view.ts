@@ -11,7 +11,7 @@ export function dashboardMetrics(orders: readonly Order[]) {
     revenue,
     paid,
     due: Math.max(0, revenue - paid),
-    attention: orders.filter((order) => order.status === 'attention').length,
+    attention: orders.filter((order) => ['attention', 'delivery_failed'].includes(order.status)).length,
   };
 }
 

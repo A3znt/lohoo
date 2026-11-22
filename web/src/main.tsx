@@ -16,13 +16,14 @@ import './aurora-theme.css';
 import './rukn-theme.css';
 import OrderForm from './OrderForm';
 import CopyButton from './CopyButton';
+import NotificationsPanel from './NotificationsPanel';
 import { exportOrdersCsv } from './order-export.mjs';
 import { dashboardMetrics, filterOrders, sortOrders, weeklyOrderActivity, type OrderSort } from './order-view';
-import { ApiError, api, login, loginAgent, logout, money, orderNumber, orderTotal, session, type Actor, type AgentSummary, type Bootstrap, type Order, type OrderInput, type OrderStatus, type Package, type Settings } from './api';
+import { ApiError, api, login, loginAgent, logout, money, orderNumber, orderTotal, session, type Actor, type AgentSummary, type Bootstrap, type NotificationRecord, type Order, type OrderInput, type OrderStatus, type Package, type Settings } from './api';
 
 type View = 'overview' | 'orders' | 'shipping' | 'team' | 'settings';
 const statusText: Record<OrderStatus, string> = {
-  creating: 'جاري إنشاء الشحنة', confirmed: 'تم التأكيد', on_way: 'في الطريق', delivered: 'تم التسليم',
+  creating: 'جاري إنشاء الشحنة', confirmed: 'تم التأكيد', on_way: 'في الطريق', postponed: 'مؤجل', delivery_failed: 'تعذّر التوصيل', delivered: 'تم التسليم',
   returned: 'مرتجع', cancelled: 'ملغي', attention: 'يحتاج مراجعة',
 };
 const smsText: Record<string, string> = { pending: 'بانتظار الإرسال', needs_key: 'يحتاج قالب رسالة', sending: 'جاري الإرسال', sent: 'قبِلته شركة الرسائل', delivered: 'وصلت إلى هاتف الزبون', failed: 'فشل الإرسال', unknown: 'حالة غير مؤكدة' };
@@ -30,7 +31,7 @@ const today = new Intl.DateTimeFormat('ar-LY', { weekday: 'long', day: 'numeric'
 const shortDate = (value: string) => new Intl.DateTimeFormat('ar-LY', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }).format(new Date(value));
 const emptyBootstrap = (actor: Actor = { role: 'admin', id: 'admin', name: 'المدير' }): Bootstrap => ({
   actor, orders: [], settings: { serviceId: '', autoMessages: true },
-  resalaConfigured: false, agents: [],
+  resalaConfigured: false, notifications: [], vapidPublicKey: '', agents: [],
   commission: { assigned: 0, delivered: 0, earned: 0, paid: 0, due: 0 },
 });
 
@@ -49,6 +50,8 @@ function App() {
   const [trash, setTrash] = useState<Order[] | null>(null);
   const [formOpen, setFormOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [phoneEnabled, setPhoneEnabled] = useState(false);
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState('');
   const [query, setQuery] = useState('');
@@ -95,6 +98,8 @@ function App() {
     setTrash(null);
     setFormOpen(false);
     setMenuOpen(false);
+    setNotificationsOpen(false);
+    setPhoneEnabled(false);
     setToast('');
     setQuery('');
     setFilter('all');
@@ -120,6 +125,23 @@ function App() {
   useEffect(() => { void checkSession(); }, []);
   useEffect(() => { if (!toast) return; const timer = window.setTimeout(() => setToast(''), 5000); return () => window.clearTimeout(timer); }, [toast]);
   useEffect(() => { if (!authenticated) return; const timer = window.setInterval(() => refresh().catch(() => {}), 60_000); return () => window.clearInterval(timer); }, [authenticated]);
+  const phoneSupported = 'Notification' in window && 'serviceWorker' in navigator && 'PushManager' in window && Boolean(data.vapidPublicKey);
+  useEffect(() => {
+    if (!authenticated || data.actor.role !== 'agent' || !phoneSupported) return;
+    let cancelled = false;
+    void navigator.serviceWorker.ready.then((registration) => registration.pushManager.getSubscription()).then((subscription) => {
+      if (cancelled) return;
+      setPhoneEnabled(Boolean(subscription));
+      if (subscription) void api('savePushSubscription', { subscription: subscription.toJSON() }).catch(() => {});
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [authenticated, data.actor.id, phoneSupported]);
+  useEffect(() => {
+    if (authenticated && window.location.search.includes('notifications=1')) {
+      setNotificationsOpen(true);
+      window.history.replaceState(null, '', window.location.pathname);
+    }
+  }, [authenticated]);
   useEffect(() => { if (selected) setSelected(data.orders.find((o) => o.id === selected.id) || null); }, [data.orders]);
   useEffect(() => { setVisibleLimit(30); }, [filter, query, sort, view]);
   useEffect(() => {
@@ -136,7 +158,7 @@ function App() {
         (target.matches('input,textarea,select') || target.isContentEditable);
       const commandSearch = (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k';
       if ((commandSearch || (event.key === '/' && !isTyping && !event.ctrlKey && !event.metaKey)) &&
-          !formOpen && !selected && !editing && !trash) {
+          !formOpen && !selected && !editing && !trash && !notificationsOpen) {
         event.preventDefault();
         if (view === 'orders') searchInputRef.current?.focus();
         else {
@@ -148,7 +170,7 @@ function App() {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [authenticated, formOpen, selected, editing, trash, view]);
+  }, [authenticated, formOpen, selected, editing, trash, notificationsOpen, view]);
 
   useEffect(() => {
     if (!authenticated) return;
@@ -156,12 +178,13 @@ function App() {
       if (event.key !== 'Escape') return;
       if (editing) setEditing(null);
       else if (trash) setTrash(null);
+      else if (notificationsOpen) setNotificationsOpen(false);
       else if (selected) setSelected(null);
       else if (menuOpen) setMenuOpen(false);
     };
     window.addEventListener('keydown', onEscape);
     return () => window.removeEventListener('keydown', onEscape);
-  }, [authenticated, editing, trash, selected, menuOpen]);
+  }, [authenticated, editing, trash, notificationsOpen, selected, menuOpen]);
 
   const metrics = useMemo(() => dashboardMetrics(data.orders), [data.orders]);
   const weeklyActivity = useMemo(() => weeklyOrderActivity(data.orders), [data.orders]);
@@ -169,6 +192,48 @@ function App() {
   const weekPeak = Math.max(1, ...weeklyActivity.map((day) => day.count));
   const visible = useMemo(() => sortOrders(filterOrders(data.orders, filter, query), sort), [data.orders, filter, query, sort]);
   const shippingOrders = useMemo(() => sortOrders(filterOrders(data.orders.filter((o) => o.shipmentReference), 'all', query), sort), [data.orders, query, sort]);
+  const unreadNotifications = data.notifications.filter((item) => !item.readAt).length;
+
+  async function enablePhoneNotifications() {
+    if (!phoneSupported) { setToast('المتصفح الحالي لا يدعم إشعارات الهاتف.'); return; }
+    setBusy(true);
+    try {
+      const permission = await Notification.requestPermission();
+      if (permission !== 'granted') throw new Error('اسمحي بإشعارات ركن من إعدادات المتصفح أولًا.');
+      const key = data.vapidPublicKey.replace(/-/g, '+').replace(/_/g, '/');
+      const publicKey = Uint8Array.from(atob(key.padEnd(Math.ceil(key.length / 4) * 4, '=')), (character) => character.charCodeAt(0));
+      const registration = await navigator.serviceWorker.ready;
+      const existing = await registration.pushManager.getSubscription();
+      const subscription = existing || await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: publicKey });
+      try { await api('savePushSubscription', { subscription: subscription.toJSON() }); }
+      catch (error) { if (!existing) await subscription.unsubscribe(); throw error; }
+      setPhoneEnabled(true);
+      setToast('إشعارات الهاتف مفعّلة.');
+    } catch (error) { setToast(error instanceof Error ? error.message : 'تعذر تفعيل إشعارات الهاتف.'); }
+    finally { setBusy(false); }
+  }
+  async function disablePhoneNotifications() {
+    setBusy(true);
+    try {
+      const registration = await navigator.serviceWorker.ready;
+      const subscription = await registration.pushManager.getSubscription();
+      if (subscription) {
+        try { await api('removePushSubscription', { endpoint: subscription.endpoint }); }
+        catch { /* Unsubscribe this device even when the server is unavailable. */ }
+        await subscription.unsubscribe();
+      }
+      setPhoneEnabled(false);
+      setToast('تم إيقاف إشعارات الهاتف على هذا الجهاز.');
+    } catch (error) { setToast(error instanceof Error ? error.message : 'تعذر إيقاف إشعارات الهاتف.'); }
+    finally { setBusy(false); }
+  }
+  async function markRead(item: NotificationRecord) {
+    if (item.readAt) return;
+    try {
+      const updated = await api<NotificationRecord>('markNotificationRead', { id: item.id });
+      setData((current) => ({ ...current, notifications: current.notifications.map((row) => row.id === item.id ? updated : row) }));
+    } catch (error) { setToast(error instanceof Error ? error.message : 'تعذر تحديث الإشعار.'); }
+  }
 
   async function action<T>(task: () => Promise<T>, success?: string) {
     setBusy(true);
@@ -237,18 +302,19 @@ function App() {
       </nav>
       <div className="sidebar-bottom">
         <div className="sidebar-tip"><Sparkles size={18} /><strong>كل شيء في مكان واحد</strong><span>من رسالة الزبون إلى وصول الطلب.</span></div>
-        <div className="sidebar-user"><span className="avatar">{data.actor.name.slice(0, 1)}</span><div><strong>{data.actor.name}</strong><small>{data.actor.role === 'admin' ? 'مدير المتجر' : 'مندوبة'}</small></div><button aria-label="تسجيل الخروج" title="تسجيل الخروج" onClick={async () => { try { await logout(); clearSessionData(); } catch (error) { setToast(error instanceof Error ? error.message : 'تعذر تسجيل الخروج'); } }}><LogOut size={18} /></button></div>
+        <div className="sidebar-user"><span className="avatar">{data.actor.name.slice(0, 1)}</span><div><strong>{data.actor.name}</strong><small>{data.actor.role === 'admin' ? 'مدير المتجر' : 'مندوبة'}</small></div><button aria-label="تسجيل الخروج" title="تسجيل الخروج" onClick={async () => { try { if (data.actor.role === 'agent' && phoneEnabled) await disablePhoneNotifications(); await logout(); clearSessionData(); } catch (error) { setToast(error instanceof Error ? error.message : 'تعذر تسجيل الخروج'); } }}><LogOut size={18} /></button></div>
       </div>
     </aside>
 
     <main className="main" id="lohoo-main">
-      <header className="topbar"><div className="topbar-right"><button className="icon-button menu-button" aria-label="القائمة" onClick={() => setMenuOpen(true)}><Menu size={22} /></button><div className="breadcrumb">مساحة العمل <ChevronLeft size={15} /> <b>{view === 'overview' ? 'نظرة عامة' : view === 'orders' ? 'الطلبات' : view === 'shipping' ? 'الشحن والتوصيل' : view === 'team' ? 'المندوبات' : 'الإعدادات'}</b></div></div><div className="topbar-left"><span className={`sync-time ${syncError ? 'has-error' : ''}`} role="status">{syncError ? 'تعذر التحديث' : lastSyncedAt ? `آخر تحديث ${lastSyncedAt.toLocaleTimeString('ar-LY', { hour: 'numeric', minute: '2-digit' })}` : 'جاري تحميل البيانات'}</span><button type="button" className="sync-button" aria-label="تحديث الطلبات" title="تحديث الطلبات" disabled={refreshing} onClick={() => void refresh().catch(() => {})}><RefreshCw size={16} className={refreshing ? 'spin' : ''} /><span>تحديث</span></button><span className="date-pill"><Clock3 size={15} />{today}</span><span className="top-avatar">{data.actor.name.slice(0, 1)}</span></div></header>
+      <header className="topbar"><div className="topbar-right"><button className="icon-button menu-button" aria-label="القائمة" onClick={() => setMenuOpen(true)}><Menu size={22} /></button><div className="breadcrumb">مساحة العمل <ChevronLeft size={15} /> <b>{view === 'overview' ? 'نظرة عامة' : view === 'orders' ? 'الطلبات' : view === 'shipping' ? 'الشحن والتوصيل' : view === 'team' ? 'المندوبات' : 'الإعدادات'}</b></div></div><div className="topbar-left">{data.actor.role === 'agent' && <button type="button" className="notification-trigger" aria-label={`الإشعارات، ${unreadNotifications} غير مقروء`} title="الإشعارات" onClick={() => setNotificationsOpen(true)}><Bell size={20} />{unreadNotifications > 0 && <span className="notification-badge">{unreadNotifications}</span>}</button>}<span className={`sync-time ${syncError ? 'has-error' : ''}`} role="status">{syncError ? 'تعذر التحديث' : lastSyncedAt ? `آخر تحديث ${lastSyncedAt.toLocaleTimeString('ar-LY', { hour: 'numeric', minute: '2-digit' })}` : 'جاري تحميل البيانات'}</span><button type="button" className="sync-button" aria-label="تحديث الطلبات" title="تحديث الطلبات" disabled={refreshing} onClick={() => void refresh().catch(() => {})}><RefreshCw size={16} className={refreshing ? 'spin' : ''} /><span>تحديث</span></button><span className="date-pill"><Clock3 size={15} />{today}</span><span className="top-avatar">{data.actor.name.slice(0, 1)}</span></div></header>
       <div className="content">
         {syncError && <div className="sync-warning" role="alert"><CircleAlert size={19} /><span>تعذر تحديث البيانات: {syncError}. {lastSyncedAt ? 'قد تكون الأرقام قديمة.' : 'لم يتم تحميل الطلبات بعد.'}</span><button type="button" disabled={refreshing} onClick={() => void refresh().catch(() => {})}>إعادة المحاولة</button></div>}
         {!lastSyncedAt && <div className="initial-data-loading" role="status">{refreshing ? <div className="spinner" /> : <CircleAlert size={20} />}<span>{refreshing ? 'جاري جلب الطلبات والبيانات من الخادم…' : 'لا يمكن عرض أرقام الطلبات حتى ينجح التحديث. اضغط إعادة المحاولة أعلاه.'}</span></div>}
         {lastSyncedAt && view === 'overview' && <>
           <div className="hero"><div><div className="eyebrow"><span className="pulse-dot" /> مركز إدارة متجرك</div><h1>كل طلب، من أول رسالة<br /><em>حتى باب الزبون.</em></h1><p>تابع الطلبات والشحن والتحصيل من لوحة واحدة مرتبة وواضحة.</p><button className="btn light" onClick={() => setFormOpen(true)}><Plus size={19} /> إضافة طلب جديد <ArrowLeft size={18} /></button></div><div className="hero-visual" aria-hidden="true"><span className="holo-ring" /><span className="holo-spark" /><span className="holo-spark second" /><div className="hero-card floating-one"><span className="mini-icon"><PackageCheck size={19} /></span><div><strong>متابعة الطلبات</strong><small>من التسجيل إلى التسليم</small></div><Check size={18} /></div><div className="hero-card floating-two"><span className="mini-icon gold"><Send size={18} /></span><div><strong>تحديث الشحنات</strong><small>التتبع والإشعارات في مكان واحد</small></div><span className="waves">✦</span></div><div className="hero-orbit"><Box size={74} strokeWidth={1.1} /></div></div></div>
           {metrics.attention > 0 && <div className="notice attention"><CircleAlert size={20} /><span><strong>{metrics.attention} طلب يحتاج مراجعة</strong> — تأكد من حالة الشحنة في درب السبيل قبل إعادة المحاولة.</span><button onClick={() => navigate('orders')}>عرض الطلبات <ArrowLeft size={16} /></button></div>}
+          {data.actor.role === 'agent' && phoneSupported && !phoneEnabled && <div className="notice notification-invite"><Bell size={20} /><span><strong>تحديثات طلباتك توصلك على الهاتف.</strong> فعّلي الإشعارات باش تعرفي بالتأجيل أو التعذّر أو الإلغاء حتى لو ركن مقفول.</span><button onClick={() => setNotificationsOpen(true)}>تفعيل الإشعارات <ArrowLeft size={16} /></button></div>}
           {data.actor.role === 'admin' && !data.resalaConfigured && <div className="notice"><MessageCircle size={20} /><span><strong>رسائل الزبائن تنتظر قوالب رسالة.</strong> أضف معرّفَي القالبين المعتمدين على الخادم لتبدأ الرسائل التلقائية.</span><button onClick={() => navigate('settings')}>التفاصيل <ArrowLeft size={16} /></button></div>}
           <div className="section-heading"><div><span className="overline">ملخص اليوم</span><h2>أرقامك بنظرة واحدة</h2></div><span className="muted">تتحدث تلقائيًا مع كل طلب</span></div>
           <div className="metric-grid">
@@ -281,7 +347,7 @@ function App() {
               </div>
               <span className="count-pill">{visible.length} طلب</span>
             </div>
-            <div className="filters">{([['all', 'الكل'], ['creating', 'جاري الإنشاء'], ['confirmed', 'مؤكد'], ['on_way', 'في الطريق'], ['delivered', 'تم التسليم'], ['returned', 'مرتجع'], ['cancelled', 'ملغي'], ['attention', 'يحتاج مراجعة']] as const).map(([key, label]) => <button key={key} type="button" className={filter === key ? 'selected' : ''} aria-pressed={filter === key} onClick={() => setFilter(key)}>{label}</button>)}</div>
+            <div className="filters">{([['all', 'الكل'], ['creating', 'جاري الإنشاء'], ['confirmed', 'مؤكد'], ['on_way', 'في الطريق'], ['postponed', 'مؤجل'], ['delivery_failed', 'تعذّر التوصيل'], ['delivered', 'تم التسليم'], ['returned', 'مرتجع'], ['cancelled', 'ملغي'], ['attention', 'يحتاج مراجعة']] as const).map(([key, label]) => <button key={key} type="button" className={filter === key ? 'selected' : ''} aria-pressed={filter === key} onClick={() => setFilter(key)}>{label}</button>)}</div>
             {visible.length ? <><OrderList orders={visible.slice(0, visibleLimit)} onSelect={setSelected} />{visible.length > visibleLimit && <div className="load-more"><span>عرض {visibleLimit} من {visible.length} طلب</span><button type="button" className="btn ghost" onClick={() => setVisibleLimit((value) => value + 30)}>عرض المزيد</button></div>}</> : <Empty title={query.trim() || filter !== 'all' ? 'لا توجد طلبات مطابقة' : 'ما فيش طلبات هنا بعد'} description={query.trim() || filter !== 'all' ? 'جرّب تغيير البحث أو حالة الطلب.' : 'أضف أول طلب جديد.'} onClick={query.trim() || filter !== 'all' ? undefined : () => setFormOpen(true)} />}
           </div>
         </>}
@@ -325,6 +391,7 @@ function App() {
     {editing && <EditOrder order={editing} actor={data.actor} agents={data.agents} busy={busy} close={() => setEditing(null)} save={async form => { try { const result = await action(() => api<Order>('editOrder', { id:editing.id, version:editing.updatedAt, order:form }), 'حُفظت التعديلات'); setEditing(null); setSelected(result); } catch { /* toast */ } }} />}
     {formOpen && <OrderForm onClose={() => setFormOpen(false)} onCreate={create} busy={busy} defaultServiceId={data.settings.serviceId} agents={data.agents} actor={data.actor} />}
     {selected && !editing && <OrderDetails onEdit={() => setEditing(selected)} order={selected} onClose={() => setSelected(null)} onAction={async (name, params, success) => { try { await action(() => api<Order>(name, { id: selected.id, ...params }), success); } catch { /* toast */ } }} busy={busy} actor={data.actor} agents={data.agents} />}
+    {notificationsOpen && data.actor.role === 'agent' && <NotificationsPanel items={data.notifications} phoneSupported={phoneSupported} phoneEnabled={phoneEnabled} busy={busy} onClose={() => setNotificationsOpen(false)} onEnablePhone={() => void enablePhoneNotifications()} onDisablePhone={() => void disablePhoneNotifications()} onRead={(item) => void markRead(item)} onOpen={(item) => { void markRead(item); setNotificationsOpen(false); const order = data.orders.find((row) => row.id === item.orderId); if (order) setSelected(order); else setToast('هذه الطلبية لم تعد ضمن طلباتك الحالية.'); }} />}
     {toast && <div className="toast" role="status" aria-live="polite"><Bell size={18} /><span>{toast}</span><button onClick={() => setToast('')} aria-label="إغلاق"><X size={15} /></button></div>}
   </div>;
 }
@@ -383,7 +450,7 @@ function OrderDetails({ onEdit, order, onClose, onAction, busy, actor, agents }:
   useEffect(() => setPaid(String(order.paid)), [order.paid]);
   const paidNumber = Number(paid);
   const paidValid = paid.trim() !== '' && Number.isFinite(paidNumber) && paidNumber >= 0 && paidNumber <= 10000000;
-  return <div className="drawer-layer"><button className="drawer-scrim" aria-label="إغلاق" onClick={onClose} /><section className="drawer detail-drawer" role="dialog" aria-modal="true" aria-label={`تفاصيل الطلب ${orderNumber(order)}`}><div className="drawer-head"><div><span className="overline">تفاصيل الطلب · {orderNumber(order)} <CopyButton value={orderNumber(order)} label="رقم الطلب" compact /></span><h2>{order.customer}</h2></div><button ref={closeButtonRef} className="icon-button" onClick={onClose} aria-label="إغلاق"><X size={21} /></button></div><div className="drawer-body"><div className="detail-status-line"><Status value={order.status} /><Source value={order.source} /></div>{order.status === 'attention' && <div className="form-error"><CircleAlert size={18} />{order.shippingError || 'راجع الشحنة في لوحة درب السبيل قبل المحاولة مجددًا.'}</div>}<div className="detail-section"><h3>بيانات الطلب</h3><DetailLine label="رقم الطلب" value={orderNumber(order)} copyable /><DetailLine label="أُدخل بواسطة" value={order.createdByName || "غير مسجل"} /><DetailLine label="المنتج" value={`${order.product} × ${order.quantity}`} />{order.sku && <DetailLine label="SKU" value={order.sku} copyable />}{order.widthCM !== undefined && <DetailLine label="القياس" value={`${order.widthCM} × ${order.heightCM} × ${order.lengthCM} سم`} />}<DetailLine label="رقم الهاتف" value={order.phone} copyable /><a className="phone-call-link" href={`tel:+${order.phone.replace(/\D/g, '')}`}><Phone size={15} /> الاتصال بالزبون</a><DetailLine label="العنوان" value={`${order.city}، ${order.area}، ${order.address}`} copyable /><DetailLine label="تاريخ الطلب" value={shortDate(order.createdAt)} /><DetailLine label="رسوم التوصيل" value={money(order.deliveryFee)} copyable /><DetailLine label="الإجمالي" value={money(orderTotal(order))} strong copyable />{order.notes && <DetailLine label="ملاحظات" value={order.notes} />}</div><div className="detail-section"><h3>المندوبة والعمولة</h3>{actor.role === 'admin' ? <div className="field"><label htmlFor="detail-agent">المندوبة المسؤولة</label><select id="detail-agent" value={order.agentId || ''} disabled={busy || Boolean(order.commissionPaidAt)} onChange={(e) => onAction('assignAgent', { agentId: e.target.value }, 'تم تحديث المندوبة')}><option value="">بدون مندوبة</option>{agents.filter((a) => a.enabled || a.id === order.agentId).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</select></div> : <DetailLine label="المندوبة" value={order.agentName || actor.name} />}<DetailLine label="قيمة العمولة" value={order.commissionEarnedAt ? money(order.commissionAmount || 15) : '15 د.ل بعد التسليم'} /><DetailLine label="الحالة" value={order.commissionPaidAt ? 'صُرفت' : order.commissionEarnedAt ? 'مستحقة ولم تُصرف' : 'بانتظار التسليم'} />{actor.role === 'admin' && order.commissionEarnedAt && !order.commissionPaidAt && <button className="btn primary full" disabled={busy} onClick={() => onAction('payCommission', {}, 'تم تسجيل صرف العمولة')}>تسجيل صرف 15 د.ل</button>}</div><div className="detail-section"><h3>التحصيل</h3><div className="collection-card"><div><small>المتبقي للتحصيل</small><strong>{money(Math.max(0, orderTotal(order) - order.paid))}</strong></div><CopyButton value={money(Math.max(0, orderTotal(order) - order.paid))} label="المتبقي للتحصيل" compact /></div>{actor.role === 'admin' && <div className="paid-edit"><input aria-label="المبلغ المحصّل" type="number" min="0" max="10000000" step="0.01" value={paid} aria-invalid={!paidValid} onChange={(e) => setPaid(e.target.value)} /><button className="btn ghost" disabled={busy || !paidValid || paidNumber === order.paid} onClick={() => onAction('updateOrder', { paid: paidNumber }, 'تم تحديث المبلغ المحصّل')}>حفظ المحصّل</button></div>}</div><div className="detail-section"><h3>الشحن والتواصل</h3>{order.shipmentReference && !order.carrierDeletedAt && <details><summary>نص تأكيد الطلب للمشاركة</summary><div className="share-toolbar"><CopyButton value={confirmationText(order)} label="نص التأكيد" /></div><textarea aria-label="رسالة التأكيد للمشاركة" readOnly rows={10} style={{width:"100%",font:"inherit"}} value={confirmationText(order)} onFocus={e => e.target.select()} /></details>}<DetailLine label="رقم التتبع" value={order.shipmentReference || 'لم يُنشأ بعد'} copyable={Boolean(order.shipmentReference)} /><DetailLine label="حالة درب السبيل" value={order.darbStatus === 'not_found' ? 'المرجع غير موجود لدى درب السبيل' : order.carrierDeletedAt ? 'حُذفت من درب السبيل' : order.darbStatus || '—'} /><DetailLine label="رسالة التأكيد" value={smsText[order.confirmationSms] || order.confirmationSms} /><DetailLine label="رسالة الطريق" value={smsText[order.onWaySms] || order.onWaySms} />{order.shipmentReference && <button className="btn ghost full" disabled={busy} onClick={() => onAction('syncOrder', {}, 'تم تحديث حالة الشحنة')}><RefreshCw size={17} /> تحديث حالة الشحنة</button>}</div>{order.status === 'attention' && !order.shipmentReference && /Unexpected property has been encountered!|Unable to fetch branch/.test(order.shippingError || '') && <RetryShipmentPanel order={order} busy={busy} onAction={onAction} />}</div><div className="drawer-footer stacked"><button className="btn ghost full" disabled={busy || order.status === 'creating'} onClick={onEdit}>تعديل الطلب</button>{actor.role === 'admin' && <button className="btn ghost full" disabled={busy || order.status === 'creating'} onClick={() => { if (window.confirm(order.shipmentReference && !order.carrierDeletedAt ? 'حذف هذه الشحنة نهائيًا من درب السبيل ونقل الطلب إلى المحذوفات؟ استعادة سجل دفتر لاحقًا لا تعيد الشحنة.' : 'نقل سجل الطلب إلى المحذوفات؟')) onAction('deleteOrder', {}, 'نُقل الطلب إلى المحذوفات'); }}>{order.shipmentReference && !order.carrierDeletedAt ? 'حذف الشحنة من درب السبيل ودفتر' : 'حذف سجل الطلب'}</button>}</div></section></div>;
+  return <div className="drawer-layer"><button className="drawer-scrim" aria-label="إغلاق" onClick={onClose} /><section className="drawer detail-drawer" role="dialog" aria-modal="true" aria-label={`تفاصيل الطلب ${orderNumber(order)}`}><div className="drawer-head"><div><span className="overline">تفاصيل الطلب · {orderNumber(order)} <CopyButton value={orderNumber(order)} label="رقم الطلب" compact /></span><h2>{order.customer}</h2></div><button ref={closeButtonRef} className="icon-button" onClick={onClose} aria-label="إغلاق"><X size={21} /></button></div><div className="drawer-body"><div className="detail-status-line"><Status value={order.status} /><Source value={order.source} /></div>{order.status === 'attention' && <div className="form-error"><CircleAlert size={18} />{order.shippingError || 'راجع الشحنة في لوحة درب السبيل قبل المحاولة مجددًا.'}</div>}<div className="detail-section"><h3>بيانات الطلب</h3><DetailLine label="رقم الطلب" value={orderNumber(order)} copyable /><DetailLine label="أُدخل بواسطة" value={order.createdByName || "غير مسجل"} /><DetailLine label="المنتج" value={`${order.product} × ${order.quantity}`} />{order.sku && <DetailLine label="SKU" value={order.sku} copyable />}{order.widthCM !== undefined && <DetailLine label="القياس" value={`${order.widthCM} × ${order.heightCM} × ${order.lengthCM} سم`} />}<DetailLine label="رقم الهاتف" value={order.phone} copyable /><a className="phone-call-link" href={`tel:+${order.phone.replace(/\D/g, '')}`}><Phone size={15} /> الاتصال بالزبون</a><DetailLine label="العنوان" value={`${order.city}، ${order.area}، ${order.address}`} copyable /><DetailLine label="تاريخ الطلب" value={shortDate(order.createdAt)} /><DetailLine label="رسوم التوصيل" value={money(order.deliveryFee)} copyable /><DetailLine label="الإجمالي" value={money(orderTotal(order))} strong copyable />{order.notes && <DetailLine label="ملاحظات" value={order.notes} />}</div><div className="detail-section"><h3>المندوبة والعمولة</h3>{actor.role === 'admin' ? <div className="field"><label htmlFor="detail-agent">المندوبة المسؤولة</label><select id="detail-agent" value={order.agentId || ''} disabled={busy || Boolean(order.commissionPaidAt)} onChange={(e) => onAction('assignAgent', { agentId: e.target.value }, 'تم تحديث المندوبة')}><option value="">بدون مندوبة</option>{agents.filter((a) => a.enabled || a.id === order.agentId).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</select></div> : <DetailLine label="المندوبة" value={order.agentName || actor.name} />}<DetailLine label="قيمة العمولة" value={order.commissionEarnedAt ? money(order.commissionAmount || 15) : '15 د.ل بعد التسليم'} /><DetailLine label="الحالة" value={order.commissionPaidAt ? 'صُرفت' : order.commissionEarnedAt ? 'مستحقة ولم تُصرف' : 'بانتظار التسليم'} />{actor.role === 'admin' && order.commissionEarnedAt && !order.commissionPaidAt && <button className="btn primary full" disabled={busy} onClick={() => onAction('payCommission', {}, 'تم تسجيل صرف العمولة')}>تسجيل صرف 15 د.ل</button>}</div><div className="detail-section"><h3>التحصيل</h3><div className="collection-card"><div><small>المتبقي للتحصيل</small><strong>{money(Math.max(0, orderTotal(order) - order.paid))}</strong></div><CopyButton value={money(Math.max(0, orderTotal(order) - order.paid))} label="المتبقي للتحصيل" compact /></div>{actor.role === 'admin' && <div className="paid-edit"><input aria-label="المبلغ المحصّل" type="number" min="0" max="10000000" step="0.01" value={paid} aria-invalid={!paidValid} onChange={(e) => setPaid(e.target.value)} /><button className="btn ghost" disabled={busy || !paidValid || paidNumber === order.paid} onClick={() => onAction('updateOrder', { paid: paidNumber }, 'تم تحديث المبلغ المحصّل')}>حفظ المحصّل</button></div>}</div><div className="detail-section"><h3>الشحن والتواصل</h3>{order.shipmentReference && !order.carrierDeletedAt && <details><summary>نص تأكيد الطلب للمشاركة</summary><div className="share-toolbar"><CopyButton value={confirmationText(order)} label="نص التأكيد" /></div><textarea aria-label="رسالة التأكيد للمشاركة" readOnly rows={10} style={{width:"100%",font:"inherit"}} value={confirmationText(order)} onFocus={e => e.target.select()} /></details>}<DetailLine label="رقم التتبع" value={order.shipmentReference || 'لم يُنشأ بعد'} copyable={Boolean(order.shipmentReference)} /><DetailLine label="حالة درب السبيل" value={order.darbStatus === 'not_found' ? 'المرجع غير موجود لدى درب السبيل' : order.carrierDeletedAt ? 'حُذفت من درب السبيل' : order.darbStatus || '—'} />{order.carrierReason && <DetailLine label="سبب حالة الشحنة" value={order.carrierReason} />}<DetailLine label="رسالة التأكيد" value={smsText[order.confirmationSms] || order.confirmationSms} /><DetailLine label="رسالة الطريق" value={smsText[order.onWaySms] || order.onWaySms} />{order.shipmentReference && <button className="btn ghost full" disabled={busy} onClick={() => onAction('syncOrder', {}, 'تم تحديث حالة الشحنة')}><RefreshCw size={17} /> تحديث حالة الشحنة</button>}</div>{order.status === 'attention' && !order.shipmentReference && /Unexpected property has been encountered!|Unable to fetch branch/.test(order.shippingError || '') && <RetryShipmentPanel order={order} busy={busy} onAction={onAction} />}</div><div className="drawer-footer stacked"><button className="btn ghost full" disabled={busy || order.status === 'creating'} onClick={onEdit}>تعديل الطلب</button>{actor.role === 'admin' && <button className="btn ghost full" disabled={busy || order.status === 'creating'} onClick={() => { if (window.confirm(order.shipmentReference && !order.carrierDeletedAt ? 'حذف هذه الشحنة نهائيًا من درب السبيل ونقل الطلب إلى المحذوفات؟ استعادة سجل دفتر لاحقًا لا تعيد الشحنة.' : 'نقل سجل الطلب إلى المحذوفات؟')) onAction('deleteOrder', {}, 'نُقل الطلب إلى المحذوفات'); }}>{order.shipmentReference && !order.carrierDeletedAt ? 'حذف الشحنة من درب السبيل ودفتر' : 'حذف سجل الطلب'}</button>}</div></section></div>;
 }
 function DetailLine({ label, value, strong = false, copyable = false }: { label: string; value: string; strong?: boolean; copyable?: boolean }) { return <div className="detail-line"><span>{label}</span><span className="detail-value"><b className={strong ? 'strong' : ''} dir={copyable ? 'auto' : undefined}>{value}</b>{copyable && <CopyButton value={value} label={label} compact />}</span></div>; }
 

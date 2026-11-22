@@ -1,6 +1,7 @@
 import { confirmationFields } from '../shared/confirmation.mjs';
 import { createHmac, randomUUID, scryptSync, timingSafeEqual } from 'node:crypto';
 import { binding, ordersStore as getCloudflareStore } from './runtime.mjs';
+import { carrierEvent, createCarrierNotification } from './notifications.mjs';
 
 const DARB_BASE = 'https://v2.sabil.ly';
 const RESALA_BASE = 'https://dev.resala.ly/api/v1';
@@ -468,19 +469,49 @@ export async function removeOrder(id) {
 
 export async function syncOrder(id) {
   const entry = await readOrder(id);
-  if (!entry?.data?.shipmentReference || !['confirmed', 'on_way'].includes(entry.data.status)) return entry?.data || null;
+  if (!entry?.data?.shipmentReference || !['confirmed', 'on_way', 'postponed', 'delivery_failed'].includes(entry.data.status)) return entry?.data || null;
   const reference = encodeURIComponent(entry.data.shipmentReference);
   const shipment = await darb('GET', `/api/local/shipments/?reference=${reference}`);
-  const record = exactShipment(shipment, entry.data.shipmentReference);
+  let record = exactShipment(shipment, entry.data.shipmentReference);
+  if (!record && /^[a-f0-9]{24}$/i.test(entry.data.shipmentId || '')) {
+    record = exactShipment(await darb('GET', `/api/local/shipments/${entry.data.shipmentId}`), entry.data.shipmentReference);
+  }
   const status = String(record?.status || '');
   if (!status) return entry.data;
   const latest = (await readOrder(id))?.data;
   if (!latest || latest.carrierDeletedAt) return latest;
-  const updates = { darbStatus: status };
-  if (isOnWayStatus(status) && latest.status === 'confirmed') updates.status = 'on_way';
-  if (['confirmed', 'on_way'].includes(latest.status) && isDeliveredStatus(status)) updates.status = 'delivered';
-  if (['confirmed', 'on_way'].includes(latest.status) && ['returned', 'cancelled'].includes(status.toLowerCase())) updates.status = status.toLowerCase();
+  let event = carrierEvent(record);
+  if (event && !event.reason) {
+    try {
+      const timeline = await darb('GET', `/api/local/shipments/timeline/${reference}`);
+      const rows = Array.isArray(timeline) ? timeline : timeline?.results;
+      if (Array.isArray(rows)) event = carrierEvent({ ...record, timeline: rows }) || event;
+    } catch { /* Some Darb accounts do not expose the timeline endpoint. */ }
+  }
+  const updates = {};
+  if (status !== latest.darbStatus) updates.darbStatus = status;
+  if (event && event.reason !== (latest.carrierReason || '')) updates.carrierReason = event.reason;
+  if (event?.kind === 'postponed') updates.status = 'postponed';
+  else if (event?.kind === 'delivery_failed') updates.status = 'delivery_failed';
+  else if (event?.kind === 'cancelled') updates.status = 'cancelled';
+  else if (isOnWayStatus(status) && latest.status !== 'on_way') updates.status = 'on_way';
+  else if (status.toLowerCase() === 'pending' && ['postponed', 'delivery_failed'].includes(latest.status)) updates.status = 'confirmed';
+  else if (isDeliveredStatus(status)) updates.status = 'delivered';
+  else if (status.toLowerCase() === 'returned') updates.status = 'returned';
+  if (updates.status === latest.status) delete updates.status;
+  if (!event && latest.carrierReason && updates.status) updates.carrierReason = '';
+  if (!Object.keys(updates).length) {
+    if (event) {
+      try { await createCarrierNotification(latest, event); }
+      catch (error) { console.error(JSON.stringify({ event: 'notification_failed', message: String(error) })); }
+    }
+    return latest;
+  }
   await updateOrder(id, updates, entry.etag);
+  if (event && (updates.status || updates.carrierReason !== undefined)) {
+    try { await createCarrierNotification({ ...latest, ...updates }, event); }
+    catch (error) { console.error(JSON.stringify({ event: 'notification_failed', message: String(error) })); }
+  }
   if (updates.status === 'on_way' && (await settings()).autoMessages) await sendStageSms(id, 'onWay');
   return (await readOrder(id))?.data;
 }

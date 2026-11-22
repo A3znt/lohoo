@@ -1,4 +1,4 @@
-export type OrderStatus = 'creating' | 'confirmed' | 'on_way' | 'delivered' | 'returned' | 'cancelled' | 'attention';
+export type OrderStatus = 'creating' | 'confirmed' | 'on_way' | 'postponed' | 'delivery_failed' | 'delivered' | 'returned' | 'cancelled' | 'attention';
 export type SmsStatus = 'pending' | 'needs_key' | 'sending' | 'sent' | 'delivered' | 'failed' | 'unknown';
 export interface Order {
   id: string; carrierDeletedAt?: string; orderNumber?: string; createdById?: string; createdByName?: string;
@@ -10,6 +10,7 @@ export interface Order {
   variantAttributes?: { key: string; value: string }[];
   notes: string; serviceId: string; status: OrderStatus; shipmentReference: string;
   darbStatus: string; shippingPrice: unknown; shippingError: string;
+  carrierReason?: string;
   confirmationSms: SmsStatus; onWaySms: SmsStatus;
   confirmationSmsError?: string; onWaySmsError?: string;
   agentId?: string; agentName?: string; commissionAmount?: number; commissionEarnedAt?: string; commissionPaidAt?: string;
@@ -18,10 +19,11 @@ export interface Actor { role: 'admin' | 'agent'; id: string; name: string; user
 export interface CommissionSummary { assigned: number; delivered: number; earned: number; paid: number; due: number }
 export interface AgentSummary extends CommissionSummary { id: string; name: string; username: string; enabled: boolean; createdAt: string }
 export interface Settings { serviceId: string; autoMessages: boolean }
+export interface NotificationRecord { id: string; agentId: string; orderId: string; kind: 'postponed' | 'delivery_failed' | 'cancelled'; title: string; body: string; reason: string; createdAt: string; readAt: string }
 export interface Package { _id: string; title?: string; name?: string; price?: number; attributes?: string[] }
 export interface WarehouseVariant { id: string; sku: string; attributes: { key: string; value: string }[]; widthCM: number; heightCM: number; lengthCM: number; isFragile: boolean; allowInspection: boolean; allowTesting: boolean }
 export interface WarehouseProduct { id: string; name: string; salePrice: number; currency: string; variants: WarehouseVariant[] }
-export interface Bootstrap { actor: Actor; orders: Order[]; settings: Settings; resalaConfigured: boolean; agents: AgentSummary[]; commission: CommissionSummary }
+export interface Bootstrap { actor: Actor; orders: Order[]; settings: Settings; resalaConfigured: boolean; notifications: NotificationRecord[]; vapidPublicKey: string; agents: AgentSummary[]; commission: CommissionSummary }
 export type OrderInput = Pick<Order, 'id' | 'source' | 'customer' | 'phone' | 'city' | 'area' | 'address' | 'product' | 'quantity' | 'unitPrice' | 'deliveryFee' | 'paid' | 'notes'> & { serviceId?: string; warehouseProductId: string; warehouseVariantId: string; agentId?: string };
 
 export class ApiError extends Error {
