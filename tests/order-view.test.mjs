@@ -1,9 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { build } from 'esbuild';
+import { fileURLToPath } from 'node:url';
 
 const bundle = await build({
-  entryPoints: [new URL('../web/src/order-view.ts', import.meta.url).pathname],
+  entryPoints: [fileURLToPath(new URL('../web/src/order-view.ts', import.meta.url))],
   bundle: true, write: false, platform: 'node', format: 'esm', target: 'es2022',
 });
 const { sortOrders, filterOrders, weeklyOrderActivity, dashboardMetrics } = await import(
