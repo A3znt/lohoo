@@ -49,7 +49,7 @@ export default function OrderForm({ initial, carrierEdit = false, onClose, onCre
     Number.isFinite(number) && number >= 0 && number <= 10000000);
   const quantityValid = Number.isInteger(form.quantity) && form.quantity >= 1 && form.quantity <= 10000;
   const ready = Boolean(form.customer.trim() && phoneValid && form.city && form.area && form.address.trim() &&
-    selectedProduct?.isPublished && !selectedProduct.isBlocked && form.warehouseVariantId && form.serviceId &&
+    selectedProduct?.isPublished && !selectedProduct.isBlocked && selectedVariant && form.serviceId &&
     quantityValid && amountValid && !loading && !loadError);
   const currentQuote = ready && quote?.input === quoteInput ? quote.value : null;
   useEffect(() => {
@@ -94,7 +94,9 @@ export default function OrderForm({ initial, carrierEdit = false, onClose, onCre
       <label className="field">العنوان التفصيلي<input value={form.address} onChange={(e) => set('address', e.target.value)} placeholder="الشارع وأقرب نقطة دلالة" /></label>
       <div className="form-section-title"><span>03</span><div><strong>المنتج وخدمة التوصيل</strong><small>الاسم والقياس من مخزون درب السبيل</small></div></div>
       <label className="field">المنتج<select value={form.warehouseProductId} disabled={loading} onChange={(e) => chooseProduct(e.target.value)}><option value="">اختر المنتج</option>{products.map((item) => <option key={item.id} value={item.id} disabled={!item.isPublished || item.isBlocked}>{item.name} · {money(item.salePrice)}{item.isBlocked ? ' · موقوف من درب السبيل' : !item.isPublished ? ' · بانتظار اعتماد درب السبيل' : ''}</option>)}</select></label>
+      <div className="catalog-toolbar"><span>{products.filter((item) => item.isPublished && !item.isBlocked).length} منتج متاح من درب السبيل</span><button type="button" className="btn ghost" disabled={loading || busy} onClick={() => void loadDarb()}><RefreshCw size={15} className={loading ? 'spin' : ''} /> تحديث المنتجات</button></div>
       {pendingProducts.length > 0 && <p className="warehouse-pending-note" role="note">بانتظار اعتماد درب السبيل: {pendingProducts.map((item) => item.name).join('، ')}. تظهر هذه المنتجات للمتابعة، وتصبح قابلة للاختيار بعد نشرها من الشركة.</p>}
+      {selectedProduct && form.unitPrice !== selectedProduct.salePrice && <div className="catalog-price-note" role="note"><span>سعر {selectedProduct.name} في مخزون درب السبيل الآن {money(selectedProduct.salePrice)}؛ سعر الطلب الحالي {money(form.unitPrice)}.</span><button type="button" className="btn ghost" onClick={() => set('unitPrice', selectedProduct.salePrice)}>استخدم سعر المخزون</button></div>}
       {selectedProduct && <label className="field">الصنف أو القياس<select value={form.warehouseVariantId} onChange={(e) => chooseVariant(e.target.value)}>{selectedProduct.variants.map((variant) => <option key={variant.id} value={variant.id}>{variant.sku}{variant.attributes.length ? ` · ${variant.attributes.map((part) => part.value).join(' / ')}` : ''}</option>)}</select></label>}
       {selectedVariant && <div className="warehouse-summary"><span><Box size={15} /> SKU: {selectedVariant.sku}</span><span>القياس: {selectedVariant.widthCM} × {selectedVariant.heightCM} × {selectedVariant.lengthCM} سم</span></div>}
       <label className="field">خدمة التوصيل<select value={form.serviceId || ''} disabled={loading} onChange={(e) => set('serviceId', e.target.value)}><option value="">اختر الخدمة</option>{packages.filter((item) => !item.attributes?.includes('deposit')).map((item) => <option key={item._id} value={item._id}>{item.title || item.name || item._id}</option>)}</select></label>

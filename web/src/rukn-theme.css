@@ -142,6 +142,8 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
 .warehouse-summary,.quote-card.ready{border-color:#d6c19d}
 .warehouse-summary span{background:#f4ecd9;border-color:#e8d9ba;color:#6e5a3a}
 .warehouse-pending-note{margin:0;padding:11px 13px;border:1px solid #e1cc9f;border-radius:10px;background:#fff8e8;color:#745733;font-size:11px;line-height:1.7}
+.catalog-toolbar{display:flex;align-items:center;justify-content:space-between;gap:10px;color:#7b6b55;font-size:11px}.catalog-toolbar .btn{min-height:33px;padding:6px 10px;font-size:10px}
+.catalog-price-note{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;padding:10px 12px;border:1px solid #e1cc9f;border-radius:10px;background:#fff8e8;color:#745733;font-size:11px;line-height:1.7}.catalog-price-note .btn{min-height:32px;padding:6px 10px;font-size:10px}
 .quote-card.ready{background:#f7f0e2}
 .quote-card>div,.quote-part,.quote-card>small{color:#6b573a}
 .quote-card>strong,.quote-part b{color:#503a22}

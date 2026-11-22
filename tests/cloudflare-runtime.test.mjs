@@ -246,6 +246,30 @@ test('a Darb product awaiting review is visible in the catalog but cannot be use
   } finally { globalThis.fetch = previousFetch; }
 });
 
+test('Darb product pagination requests a fixed limit and removes repeated product IDs', async () => {
+  const previousFetch = globalThis.fetch;
+  const requested = [];
+  const product = (number) => ({ _id: String(number).padStart(24, '0'), productName: `منتج ${number}`,
+    salePrice: 350, isPublished: true, isBlocked: false, variants: [] });
+  globalThis.fetch = async (url) => {
+    const parsed = new URL(url);
+    requested.push(parsed.search);
+    assert.equal(parsed.searchParams.get('limit'), '10');
+    const offset = Number(parsed.searchParams.get('offset'));
+    return Response.json({ status: true, data: { results: offset === 0
+      ? Array.from({ length: 10 }, (_, index) => product(index))
+      : [product(9), product(10)] } });
+  };
+  try {
+    await withContext({ DARB_API_KEY: 'fixture', DARB_ACCOUNT_ID: 'fixture' }, async () => {
+      const products = await listWarehouseProducts();
+      assert.equal(products.length, 11);
+      assert.equal(new Set(products.map((row) => row.id)).size, 11);
+      assert.deepEqual(requested, ['?offset=0&limit=10', '?offset=10&limit=10']);
+    });
+  } finally { globalThis.fetch = previousFetch; }
+});
+
 test('Cloudflare bindings remain isolated between overlapping requests', async () => {
   assert.equal(binding('APP_TOKEN'), undefined);
   assert.throws(() => ordersStore(), /قاعدة بيانات/);

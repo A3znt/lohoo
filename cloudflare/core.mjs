@@ -164,14 +164,22 @@ export function warehouseProductView(product) {
   };
 }
 export async function listWarehouseProducts() {
-  const all = [];
-  for (let offset = 0; offset < 1000; offset += 10) {
-    const data = await darb('GET', `/api/warehouse/products/?offset=${offset}`);
+  const products = new Map();
+  const pageSize = 10;
+  for (let offset = 0; offset < 1000;) {
+    const data = await darb('GET', `/api/warehouse/products/?offset=${offset}&limit=${pageSize}`);
     const page = Array.isArray(data?.results) ? data.results : [];
-    all.push(...page.map(warehouseProductView));
-    if (page.length < 10) break;
+    let added = 0;
+    for (const raw of page) {
+      const product = warehouseProductView(raw);
+      if (!product.id || products.has(product.id)) continue;
+      products.set(product.id, product);
+      added += 1;
+    }
+    if (page.length < pageSize || added === 0) break;
+    offset += page.length;
   }
-  return all;
+  return [...products.values()];
 }
 export function deliveryLocationsView(data) {
   const cities = new Map();
