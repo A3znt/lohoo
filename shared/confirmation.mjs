@@ -1,11 +1,11 @@
-export const confirmationTemplate = `السلام عليكم $1، لوحو هوم للأثاث.
+export const confirmationTemplate = `السلام عليكم $1، ركن للأثاث.
 
 تم تأكيد طلبيتك: $2
 الإجمالي: $3 د.ل شامل التوصيل.
 العنوان: $4، $5
 كود الطلبية الخاص بدرب السبيل: $6
 
-شكراً لثقتك في لوحو هوم.`;
+شكراً لثقتك في ركن.`;
 
 export function confirmationFields(order) {
   const suffix = ' - ' + order.sku;

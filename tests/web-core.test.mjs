@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { scryptSync } from 'node:crypto';
 import { adminPasswordValid, deliveryLocationsView, equal, isAuthenticated, isDeliveredStatus, isOnWayStatus, orderNumberFromId, phone, resalaDeliveryStatus, sameOrigin, sessionCookie, shipmentInput, shipmentNotes, shippingComponents, shippingFeeFromEstimate, smsTemplateRecord, validateOrder, warehouseProductView } from '../netlify/lib/core.mjs';
+import { confirmationText } from '../shared/confirmation.mjs';
 import auth from '../netlify/functions/auth.mjs';
 
 const testEnv = { APP_TOKEN: 'a-secret-only-on-the-server', ADMIN_PASSWORD_SALT: 'test-salt',
@@ -93,6 +94,10 @@ test('numeric order number, Darb attribution and customer message stay consisten
   assert.match(number, /^\d{12}$/);
   assert.ok(shipmentNotes(order).includes(`رقم الطلب: ${number} | أُدخل بواسطة: منى`));
   assert.ok(shipmentNotes(order).includes('اتصل قبل الوصول'));
+  const preview = confirmationText({ ...order, customer: 'أحمد', city: 'طرابلس', area: 'عين زارة', shipmentReference: 'SH2607713' });
+  assert.match(preview, /ركن للأثاث/);
+  assert.match(preview, /كود الطلبية الخاص بدرب السبيل: SH2607713/);
+  assert.doesNotMatch(preview, /لوحو|LOHO/i);
   assert.equal(smsTemplateRecord({ ...order, phone: '0912345678' }, 'confirmation').$1, number);
   const detailed = smsTemplateRecord({ ...order, phone: '0912345678', shipmentReference: 'SH2607713' }, 'onWay', true);
   assert.deepEqual(detailed, { phone: '218912345678', $1: number, $2: 'مدخل روما رخامي', $3: 'C2', $4: '960', $5: 'SH2607713' });

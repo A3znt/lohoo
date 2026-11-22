@@ -76,8 +76,8 @@ test('dialogs and keyboard users have focus, Escape, and skip-to-content afforda
   const [main, form, theme] = await Promise.all([
     read('web/src/main.tsx'), read('web/src/OrderForm.tsx'), read('web/src/aurora-theme.css'),
   ]);
-  assert.match(main, /className="skip-link" href="#lohoo-main"/);
-  assert.match(main, /id="lohoo-main"/);
+  assert.match(main, /className="skip-link" href="#rukn-main"/);
+  assert.match(main, /id="rukn-main"/);
   assert.match(main, /event\.key !== 'Escape'/);
   assert.match(main, /aria-modal="true" aria-label=\{`تفاصيل الطلب/);
   assert.match(main, /closeButtonRef\.current\?\.focus\(\)/);
