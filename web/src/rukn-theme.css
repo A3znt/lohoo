@@ -90,3 +90,87 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
 .loading-screen .brand-mark{width:116px;height:84px;box-shadow:0 12px 30px #614a2425}
 .spinner{border-color:#e8d9bd;border-top-color:#a78856}
 @media(max-width:620px){.sidebar-brand .brand-mark{width:65px;height:48px}.hero{border-radius:20px}.content{padding:20px 15px 70px}.metric{border-radius:16px}.login-art{min-height:210px}.login-brand .brand-mark{width:90px;height:54px}}
+
+/* Small, purposeful motion helps reveal new content and action feedback. */
+@keyframes rukn-appear{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+@keyframes rukn-panel{from{opacity:0;transform:translateX(-12px)}to{opacity:1;transform:translateX(0)}}
+.hero,.page-title,.metric-grid,.dashboard-grid,.list-panel{animation:rukn-appear .48s cubic-bezier(.2,.75,.2,1) both}
+.metric-grid{animation-delay:.06s}.dashboard-grid,.list-panel{animation-delay:.12s}
+.drawer,.confirm-card{animation:rukn-panel .26s cubic-bezier(.2,.75,.2,1) both}
+.metric,.agent-card,.order-row,.copy-button,.bottom-tabs button{transition:transform .2s ease,background-color .2s ease,border-color .2s ease,box-shadow .2s ease}
+.metric:hover,.agent-card:hover{transform:translateY(-3px);box-shadow:0 20px 40px #4b382022}
+.order-row:hover .row-chevron{transform:translateX(-3px)}
+.row-chevron{transition:transform .2s ease}
+.copy-button:active,.btn:active:not(:disabled){transform:scale(.96)}
+.carrier-edit-note{display:flex;gap:10px;align-items:flex-start;margin:0 0 19px;padding:13px 15px;border:1px solid #e2cfaa;border-radius:13px;background:#f7eedc;color:#654b27;font-size:12px;line-height:1.8}
+.carrier-edit-note svg{flex:none;margin-top:3px;color:#a27b3f}
+@media(prefers-reduced-motion:reduce){.hero,.page-title,.metric-grid,.dashboard-grid,.list-panel,.drawer,.confirm-card{animation:none}.metric,.agent-card,.order-row,.copy-button,.bottom-tabs button,.row-chevron{transition:none}}
+
+/* Finish the brand palette across controls inherited from the older blue theme. */
+.hero .btn.ghost{background:#ffffff1c;color:#fff4df;border-color:#dbc18e66}
+.hero .btn.ghost:hover{background:#ffffff2d}
+.hero-card .waves,.hero-card>svg{color:#e4c587}
+.activity-count{color:#f3dfba}
+.row-chevron{color:#a58c66}
+.status-attention{background:#fff0d8;color:#986925}
+.status-cancelled,.status-returned{background:#f8e8e4;color:#a45b4e}
+.status-creating{background:#eee8db;color:#8f7651}
+.flow-icon{background:#f3ecdf;color:#a48b63}
+.flow-icon.active{background:#ede1cb;color:#8d683a}
+.flow-step strong{color:#493d2e}
+.flow-step span,.empty p{color:#897d6d}
+.flow-check.active{background:#e7f0e5;color:#557b59}
+.empty-art{background:#f0e6d4;color:#927044}
+.empty h3{color:#3c3023}
+.count-pill{background:#f0e5d2;color:#81613a}
+.icon-button{background:#f3ecdf;color:#806748}
+.icon-button:hover{background:#e9dcc6}
+.search{background:#fbf7ef;border-color:#e6d9c5;color:#9b8769}
+.search:focus-within{background:#fffdfa;border-color:#b3915c;box-shadow:0 0 0 3px #b3915c22}
+.search input{color:#362b20}
+.search input::placeholder{color:#a69783}
+.filters button{background:#f5eee2;border-color:#eadfcf;color:#776754}
+.filters button:hover{background:#eee1cc}
+.filters button.selected{background:#8f6e40;border-color:#8f6e40;color:#fffaf2;box-shadow:0 5px 12px #8062392b}
+.field label,.field{color:#65533d}
+.field input,.field select,.field textarea,.retry-panel input,.retry-panel select{background:#fffdfa;color:#302820;border-color:#dfd1bc}
+.field input:focus,.field select:focus,.field textarea:focus{border-color:#b18b52;box-shadow:0 0 0 3px #b18b5229}
+.source-picker button{background:#fffdfa;border-color:#e4d6c2;color:#75644f}
+.source-picker button.selected{background:#f3e8d5;border-color:#a88650;color:#75552d}
+.form-section-title>span{background:#f0e3ce;color:#846039}
+.order-form-new .form-section-title{border-color:#e9decd}
+.warehouse-summary,.quote-card.ready{border-color:#d6c19d}
+.warehouse-summary span{background:#f4ecd9;border-color:#e8d9ba;color:#6e5a3a}
+.quote-card.ready{background:#f7f0e2}
+.quote-card>div,.quote-part,.quote-card>small{color:#6b573a}
+.quote-card>strong,.quote-part b{color:#503a22}
+.order-total-preview,.collection-card{background:#efe3ce;color:#664c2d}
+.order-total-preview strong,.collection-card strong{color:#4c341d}
+.message-step{background:#f0e4cf;color:#8b693c}
+.shipping-banner strong,.shipping-logo{color:#fff4df}
+.login-form-side{background:radial-gradient(circle at 50% 20%,#f2e8d7,transparent 55%),#f7f3eb}
+.drawer-scrim,.mobile-scrim{background:#221b15a8}
+.drawer{background:#f7f3eb;box-shadow:-10px 0 45px #2c21173d}
+.drawer-head h2{color:#362b20}
+.confirm-layer{background:#211a15a3}
+.confirm-card{border-color:#e8dcc9;box-shadow:0 25px 70px #211a1545}
+.toast{background:#2d251d;border-color:#927548;color:#fff7ea;box-shadow:0 14px 40px #211a153d}
+.detail-section h3,.detail-line b,.detail-line b.strong{color:#4a3622}
+.detail-line span{color:#887b68}
+.login-tabs button.selected{box-shadow:0 2px 8px #5c45251a}
+.section-heading h2{color:#302920}
+.metric-arrow{color:#a88c65}
+.sidebar-user button{color:#d7c5a9}
+.hero-orbit:before{border-color:#e4c89466;background:radial-gradient(circle at 50% 44%,#cfb07a55,transparent 55%)}
+.hero-card{box-shadow:0 18px 36px #1b140d55,inset 0 1px 0 #ffffff24}
+.insights-panel:before{border-color:#c6a57140;box-shadow:0 0 0 60px #b6925e12}
+.insights-kicker svg{filter:none}
+.source.facebook svg,.source.instagram svg{color:#9a7546}
+.order-form-new .field input:focus,.order-form-new .field select:focus{outline-color:#b18b52}
+@media(max-width:800px){
+  .bottom-tabs{background:#2b251fef;border-color:#9a784c77;box-shadow:0 13px 35px #2d211c52,inset 0 1px 0 #fffaf014}
+  .bottom-tabs button{color:#c9b89e}
+  .bottom-tabs button.active{background:#aa885344;color:#fff6e8;box-shadow:inset 0 1px 0 #e4c79540}
+  .bottom-tabs button.active svg{color:#e4c184;filter:none}
+  .bottom-tabs button:active{background:#aa885355}
+}

@@ -405,6 +405,41 @@ export function exactShipment(payload, reference) {
   return matches.length === 1 ? matches[0] : null;
 }
 
+export async function editPendingShipment(id, form, expectedVersion, isAdmin) {
+  const entry = await readOrder(id);
+  if (!entry || entry.data.deletedAt || entry.data.status !== 'confirmed' || !entry.data.shipmentReference || entry.data.carrierDeletedAt) {
+    throw new Error('تعديل الشحنة متاح قبل خروجها للتوصيل فقط.');
+  }
+  const order = entry.data;
+  if (order.updatedAt !== expectedVersion) throw new Error('تغيّر الطلب. افتح تفاصيله مجددًا.');
+  const listed = await darb('GET', `/api/local/shipments/?reference=${encodeURIComponent(order.shipmentReference)}`);
+  const record = exactShipment(listed, order.shipmentReference);
+  if (!record || !/^[a-f0-9]{24}$/i.test(record._id) || (order.shipmentId && record._id !== order.shipmentId)) {
+    throw new Error('تعذر تأكيد الشحنة في درب السبيل. لم نحفظ أي تعديل.');
+  }
+  if (String(record.status).toLowerCase() !== 'pending') throw new Error('درب السبيل يسمح بتعديل الشحنات المعلّقة فقط.');
+  const { clean, service, estimate, deliveryFee } = await quoteOrder({ ...order, ...form });
+  const paid = isAdmin ? clean.paid : order.paid;
+  const contactChanged = clean.customer !== order.customer || clean.phone !== order.phone;
+  let contactId = order.contactId;
+  if (contactChanged || !contactId) {
+    const contact = await darb('POST', '/api/contacts/', { name: clean.customer, phone: phone(clean.phone, true) });
+    if (!contact?._id) throw new Error('درب السبيل لم يرجع معرّف الزبون. لم نعدّل الشحنة.');
+    contactId = contact._id;
+  }
+  const latest = await readOrder(id);
+  if (!latest || latest.etag !== entry.etag) throw new Error('تغيّر الطلب أثناء المراجعة. افتحه مجددًا.');
+  const next = { ...order, ...clean, serviceId: service, deliveryFee, paid };
+  const changed = await darb('PATCH', `/api/local/shipments/${record._id}`, {
+    ...shipmentInput(next, service), contacts: [contactId], notes: shipmentNotes(next),
+  });
+  if (changed?.reference && String(changed.reference) !== order.shipmentReference) {
+    throw new Error('استجابة درب السبيل لم تطابق رقم الشحنة. راجعها قبل إعادة المحاولة.');
+  }
+  return updateOrder(id, { ...clean, serviceId: service, deliveryFee, paid, shippingPrice: estimate, contactId,
+    shipmentId: record._id, darbStatus: 'pending' }, entry.etag);
+}
+
 export async function removeOrder(id) {
   const entry = await readOrder(id);
   if (!entry) throw new Error('الطلب غير موجود.');
@@ -420,8 +455,7 @@ export async function removeOrder(id) {
   const reference = order.shipmentReference;
   const result = await darb('GET', '/api/local/shipments/?reference=' + encodeURIComponent(reference));
   if (Array.isArray(result?.results) && result.results.length === 0) {
-    const now = new Date().toISOString();
-    return updateOrder(id, { deletedAt: now, carrierDeletedAt: now, status: 'cancelled', darbStatus: 'not_found' }, entry.etag);
+    throw new Error('الشحنة غير ظاهرة في قائمة درب السبيل الحالية. لم نحذف السجل؛ راجع الشحنة من لوحة الشركة.');
   }
   const record = exactShipment(result, reference);
   if (!record || !/^[a-f0-9]{24}$/i.test(record._id) || (order.shipmentId && record._id !== order.shipmentId)) {

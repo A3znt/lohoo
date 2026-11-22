@@ -1,4 +1,4 @@
-import { removeOrder, createOrder, darb, json, listDeliveryLocations, listOrders, listWarehouseProducts, quoteOrder, readOrder, resalaReady, retryShipment, sameOrigin, shippingComponents, syncSmsDelivery,
+import { removeOrder, createOrder, darb, editPendingShipment, json, listDeliveryLocations, listOrders, listWarehouseProducts, quoteOrder, readOrder, resalaReady, retryShipment, sameOrigin, shippingComponents, syncSmsDelivery,
   saveSettings, sendStageSms, settings, syncOrder, updateOrder } from './core.mjs';
 import { createAgent, getActor, listAgents, publicAgent, readAgent, resetAgentPassword, setAgentEnabled } from './team.mjs';
 
@@ -48,6 +48,9 @@ export default async function handler(request) {
         const { data, etag } = await requireOwnOrder(input.id);
         if (data.updatedAt !== input.version || data.deletedAt || data.status === 'creating') throw new Error('تغير الطلب. افتح تفاصيله مجددًا.');
         const form = input.order || {};
+        if (data.shipmentReference && data.status === 'confirmed' && data.darbStatus === 'pending') {
+          return json({ ok: true, data: await editPendingShipment(input.id, form, input.version, isAdmin) });
+        }
         const patch = { notes: String(form.notes || '').trim().slice(0, 500), source: form.source === 'instagram' ? 'instagram' : 'facebook' };
         if (data.status === 'attention' && !data.shipmentReference && /Unexpected property has been encountered!|Unable to fetch branch/.test(data.shippingError || '')) {
           const { clean, service, estimate, deliveryFee } = await quoteOrder({ ...data, ...form });

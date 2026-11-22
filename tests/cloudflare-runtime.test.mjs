@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { scryptSync } from 'node:crypto';
 import { binding, ordersStore, withContext } from '../cloudflare/runtime.mjs';
-import { adminPasswordValid, isAuthenticated, sameOrigin, sessionCookie } from '../cloudflare/core.mjs';
+import { adminPasswordValid, editPendingShipment, isAuthenticated, removeOrder, sameOrigin, sessionCookie } from '../cloudflare/core.mjs';
 
 function fakeD1() {
   const records = new Map();
@@ -103,4 +103,51 @@ test('Cloudflare admin sessions use signed cookies and enforce same-origin mutat
     assert.equal(sameOrigin(request({ Origin: 'https://lohoo.example' })), true);
     assert.equal(sameOrigin(request({ Origin: 'https://other.example' })), false);
   });
+});
+
+test('pending edits reach Darb before local save; missing shipments are never silently deleted', async () => {
+  const id = '11111111-1111-4111-8111-111111111111';
+  const productId = 'aaaaaaaaaaaaaaaaaaaaaaaa';
+  const variantId = 'bbbbbbbbbbbbbbbbbbbbbbbb';
+  const shipmentId = 'cccccccccccccccccccccccc';
+  const original = { id, orderNumber: '111111111111', customer: 'زبون', phone: '218912345678',
+    city: 'طرابلس', area: 'عين زارة', address: 'شارع 1', product: 'منتج - SKU', quantity: 1,
+    unitPrice: 25, deliveryFee: 10, paid: 0, notes: '', source: 'facebook', serviceId: 'service-1',
+    warehouseProductId: productId, warehouseVariantId: variantId, contactId: 'old-contact',
+    shipmentId, shipmentReference: '1234567', status: 'confirmed', darbStatus: 'pending',
+    updatedAt: '2026-11-20T00:00:00Z', createdAt: '2026-11-20T00:00:00Z', createdByName: 'المدير' };
+  const previousFetch = globalThis.fetch;
+  let rejectPatch = false;
+  let missing = false;
+  const calls = [];
+  globalThis.fetch = async (url, init) => {
+    const path = new URL(url).pathname;
+    calls.push({ path, method: init.method, body: init.body && JSON.parse(init.body) });
+    if (path === '/api/local/shipments/') return Response.json({ status: true, data: { results: missing ? [] : [{ _id: shipmentId, reference: original.shipmentReference, status: 'pending' }] } });
+    if (path === '/api/local/branches/public') return Response.json({ status: true, data: { results: [{ countryCode: 'lby', city: 'طرابلس', area: 'عين زارة' }] } });
+    if (path === `/api/warehouse/products/${productId}`) return Response.json({ status: true, data: { results: [{ _id: productId, productName: 'منتج', salePrice: 25, isPublished: true, isBlocked: false, variants: [{ _id: variantId, sku: 'SKU' }] }] } });
+    if (path === '/api/local/shipments/calculate/shipping/') return Response.json({ status: true, data: { invoices: [{ items: [{ type: 'shipping', currency: 'lyd', amount: 12, quantity: 1 }] }] } });
+    if (path === `/api/local/shipments/${shipmentId}` && init.method === 'PATCH') return Response.json(rejectPatch ? { status: false, messages: [{ message: 'Rejected' }] } : { status: true, data: { reference: original.shipmentReference } });
+    throw new Error(`Unexpected Darb request ${init.method} ${path}`);
+  };
+  try {
+    await withContext({ DB: fakeD1(), DARB_API_KEY: 'fixture', DARB_ACCOUNT_ID: 'fixture' }, async () => {
+      const store = ordersStore();
+      await store.setJSON(`orders/${id}`, original);
+      const input = { ...original, address: 'شارع 2', notes: 'اتصل قبل الوصول' };
+      rejectPatch = true;
+      await assert.rejects(editPendingShipment(id, input, original.updatedAt, true), /Rejected/);
+      assert.equal((await store.get(`orders/${id}`)).address, 'شارع 1');
+      rejectPatch = false;
+      const saved = await editPendingShipment(id, input, original.updatedAt, true);
+      assert.equal(saved.address, 'شارع 2');
+      assert.equal(saved.deliveryFee, 12);
+      const patch = calls.findLast(call => call.method === 'PATCH');
+      assert.equal(patch.body.to.address, 'شارع 2');
+      assert.match(patch.body.notes, /اتصل قبل الوصول/);
+      missing = true;
+      await assert.rejects(removeOrder(id), /لم نحذف السجل/);
+      assert.equal((await store.get(`orders/${id}`)).deletedAt, undefined);
+    });
+  } finally { globalThis.fetch = previousFetch; }
 });

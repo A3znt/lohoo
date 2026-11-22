@@ -4,9 +4,9 @@ import { api, money, orderTotal, type Actor, type AgentSummary, type OrderInput,
 
 interface Location { city: string; areas: string[] }
 interface Quote { serviceId: string; deliveryFee: number; components: { label: string; amount: number }[] }
-interface Props { initial?: OrderInput; onClose: () => void; onCreate: (order: OrderInput) => void; busy: boolean; defaultServiceId: string; agents: AgentSummary[]; actor: Actor }
+interface Props { initial?: OrderInput; carrierEdit?: boolean; onClose: () => void; onCreate: (order: OrderInput) => void; busy: boolean; defaultServiceId: string; agents: AgentSummary[]; actor: Actor }
 
-export default function OrderForm({ initial, onClose, onCreate, busy, defaultServiceId, agents, actor }: Props) {
+export default function OrderForm({ initial, carrierEdit = false, onClose, onCreate, busy, defaultServiceId, agents, actor }: Props) {
   const [form, setForm] = useState<OrderInput>(initial ?? { id: crypto.randomUUID(), source: 'facebook', customer: '', phone: '', city: '', area: '', address: '', product: '', warehouseProductId: '', warehouseVariantId: '', quantity: 1, unitPrice: 0, deliveryFee: 0, paid: 0, notes: '', serviceId: defaultServiceId });
   const [locations, setLocations] = useState<Location[]>([]);
   const [packages, setPackages] = useState<Package[]>([]);
@@ -78,8 +78,9 @@ export default function OrderForm({ initial, onClose, onCreate, busy, defaultSer
   }
   const total = orderTotal({ ...form, deliveryFee: currentQuote?.deliveryFee || 0 });
   return <div className="drawer-layer"><button className="drawer-scrim" aria-label="إغلاق" onClick={onClose} /><section className="drawer form-drawer" role="dialog" aria-modal="true" aria-label={initial ? 'تعديل الطلب' : 'إنشاء طلب جديد'}>
-    <div className="drawer-head"><div><span className="overline">طلب جديد · درب السبيل</span><h2>{initial ? 'تعديل الطلب' : 'إنشاء شحنة'}</h2></div><button ref={closeButtonRef} className="icon-button" onClick={onClose} aria-label="إغلاق"><X size={21} /></button></div>
+    <div className="drawer-head"><div><span className="overline">{initial ? 'تعديل طلب · درب السبيل' : 'طلب جديد · درب السبيل'}</span><h2>{initial ? 'تعديل الطلب' : 'إنشاء شحنة'}</h2></div><button ref={closeButtonRef} className="icon-button" onClick={onClose} aria-label="إغلاق"><X size={21} /></button></div>
     <div className="drawer-body order-form-new">
+      {carrierEdit && <div className="carrier-edit-note" role="note"><Truck size={18} /><span>سيُحدَّث هذا الطلب في درب السبيل أولًا، ثم في ركن. التعديل متاح ما دامت الشحنة معلّقة لدى الشركة.</span></div>}
       {loadError && <div className="form-error"><CircleAlert size={18} />{loadError}<button className="btn ghost" onClick={loadDarb}>إعادة المحاولة</button></div>}
       {loading && <div className="form-loading"><RefreshCw size={18} className="spin" /> نجلب المنتجات والأماكن والخدمات من درب السبيل…</div>}
       <div className="form-section-title"><span>01</span><div><strong>الزبون والمصدر</strong><small>بيانات الطلب من محادثتك</small></div></div>
@@ -100,6 +101,6 @@ export default function OrderForm({ initial, onClose, onCreate, busy, defaultSer
       <div className={`quote-card ${currentQuote ? 'ready' : ''}`}><div><Truck size={19} /><span>سعر التوصيل من درب السبيل</span></div><strong>{currentQuote ? money(currentQuote.deliveryFee) : quoting ? 'جاري الحساب…' : 'أكمل البيانات'}</strong>{currentQuote?.components.map((item, index) => <div className="quote-part" key={index}><span>{item.label}</span><b>{money(item.amount)}</b></div>)}{currentQuote && <small><Check size={14} /> تم حساب السعر حسب المنتج والعنوان والخدمة</small>}{quoteError && <><p className="form-error"><CircleAlert size={16} />{quoteError}</p><button className="btn ghost" onClick={() => setQuoteAttempt((n) => n + 1)}><RefreshCw size={16} /> إعادة حساب السعر</button></>}</div>
       <div className="order-total-preview"><span>إجمالي الطلب مع التوصيل</span><strong>{currentQuote ? money(total) : '—'}</strong></div>
     </div>
-    <div className="drawer-footer"><button className="btn ghost" onClick={onClose}>إلغاء</button><button className="btn primary" disabled={busy || !currentQuote || quoting} onClick={() => initial ? onCreate(form) : setConfirm(true)}>{initial ? 'حفظ التعديل' : 'مراجعة وإنشاء الشحنة'} <ArrowLeft size={17} /></button></div>
+    <div className="drawer-footer"><button className="btn ghost" onClick={onClose}>إلغاء</button><button className="btn primary" disabled={busy || !currentQuote || quoting} onClick={() => initial ? currentQuote && onCreate({ ...form, deliveryFee: currentQuote.deliveryFee }) : setConfirm(true)}>{carrierEdit ? 'تحديث درب السبيل وركن' : initial ? 'حفظ التعديل' : 'مراجعة وإنشاء الشحنة'} <ArrowLeft size={17} /></button></div>
   </section>{confirm && currentQuote && <div className="confirm-layer"><div className="confirm-card" role="dialog" aria-modal="true" aria-label="تأكيد إنشاء الشحنة"><span className="confirm-icon"><Truck size={25} /></span><h3>تأكيد الشحنة</h3><p>سيُرسل طلب <strong>{form.customer}</strong> إلى درب السبيل، ثم رسالة التأكيد للزبون.</p><div className="confirm-details"><span>{form.city}، {form.area}</span><strong>{money(currentQuote?.deliveryFee || 0)} توصيل</strong></div><div className="confirm-details"><span>إجمالي الطلب</span><strong>{money(total)}</strong></div><div className="confirm-actions"><button className="btn ghost" onClick={() => setConfirm(false)}>مراجعة</button><button className="btn primary" disabled={busy} onClick={() => { setConfirm(false); onCreate({ ...form, deliveryFee: currentQuote?.deliveryFee || 0 }); }}>{busy ? 'جاري الإرسال…' : 'تأكيد وإرسال'}</button></div></div></div>}</div>;
 }
