@@ -13,7 +13,7 @@ export default function OrderForm({ initial, onClose, onCreate, busy, defaultSer
   const [products, setProducts] = useState<WarehouseProduct[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
-  const [quote, setQuote] = useState<Quote | null>(null);
+  const [quote, setQuote] = useState<{ input: string; value: Quote } | null>(null);
   const [quoteError, setQuoteError] = useState('');
   const [quoting, setQuoting] = useState(false);
   const [confirm, setConfirm] = useState(false);
@@ -50,6 +50,7 @@ export default function OrderForm({ initial, onClose, onCreate, busy, defaultSer
   const ready = Boolean(form.customer.trim() && phoneValid && form.city && form.area && form.address.trim() &&
     form.warehouseProductId && form.warehouseVariantId && form.serviceId &&
     quantityValid && amountValid && !loading && !loadError);
+  const currentQuote = ready && quote?.input === quoteInput ? quote.value : null;
   useEffect(() => {
     setQuote(null); setQuoteError('');
     if (!ready) { setQuoting(false); return; }
@@ -58,7 +59,7 @@ export default function OrderForm({ initial, onClose, onCreate, busy, defaultSer
     const timer = window.setTimeout(async () => {
       try {
         const value = await api<Quote>('quoteOrder', { order: form });
-        if (!cancelled) setQuote(value);
+        if (!cancelled) setQuote({ input: quoteInput, value });
       } catch (error) { if (!cancelled) setQuoteError(error instanceof Error ? error.message : 'تعذر حساب سعر التوصيل.'); }
       finally { if (!cancelled) setQuoting(false); }
     }, 550);
@@ -75,7 +76,7 @@ export default function OrderForm({ initial, onClose, onCreate, busy, defaultSer
     setForm((old) => ({ ...old, warehouseVariantId: variant?.id || '',
       product: selectedProduct && variant ? `${selectedProduct.name} - ${variant.sku}` : '' }));
   }
-  const total = orderTotal({ ...form, deliveryFee: quote?.deliveryFee || 0 });
+  const total = orderTotal({ ...form, deliveryFee: currentQuote?.deliveryFee || 0 });
   return <div className="drawer-layer"><button className="drawer-scrim" aria-label="إغلاق" onClick={onClose} /><section className="drawer form-drawer" role="dialog" aria-modal="true" aria-label={initial ? 'تعديل الطلب' : 'إنشاء طلب جديد'}>
     <div className="drawer-head"><div><span className="overline">طلب جديد · درب السبيل</span><h2>{initial ? 'تعديل الطلب' : 'إنشاء شحنة'}</h2></div><button ref={closeButtonRef} className="icon-button" onClick={onClose} aria-label="إغلاق"><X size={21} /></button></div>
     <div className="drawer-body order-form-new">
@@ -96,9 +97,9 @@ export default function OrderForm({ initial, onClose, onCreate, busy, defaultSer
       <div className="field-grid"><label className="field">الكمية<input type="number" min="1" step="1" value={form.quantity} onChange={(e) => set('quantity', Number(e.target.value || 0))} /></label><label className="field">سعر القطعة<input type="number" min="0" step="0.01" value={form.unitPrice} onChange={(e) => set('unitPrice', Number(e.target.value || 0))} /></label></div>
       <div className="field-grid"><label className="field">المحصّل من الزبون<input type="number" min="0" step="0.01" value={form.paid} onChange={(e) => set('paid', Number(e.target.value || 0))} /></label><label className="field">ملاحظات<input value={form.notes} onChange={(e) => set('notes', e.target.value)} placeholder="اختياري" /></label></div>
       {(!quantityValid || !amountValid) && <p className="field-hint-error" role="alert">تحقّق من الكمية والمبالغ: الكمية عدد صحيح موجب، والمبالغ لا تقل عن صفر.</p>}
-      <div className={`quote-card ${quote ? 'ready' : ''}`}><div><Truck size={19} /><span>سعر التوصيل من درب السبيل</span></div><strong>{quote ? money(quote.deliveryFee) : quoting ? 'جاري الحساب…' : 'أكمل البيانات'}</strong>{quote?.components.map((item, index) => <div className="quote-part" key={index}><span>{item.label}</span><b>{money(item.amount)}</b></div>)}{quote && <small><Check size={14} /> تم حساب السعر حسب المنتج والعنوان والخدمة</small>}{quoteError && <><p className="form-error"><CircleAlert size={16} />{quoteError}</p><button className="btn ghost" onClick={() => setQuoteAttempt((n) => n + 1)}><RefreshCw size={16} /> إعادة حساب السعر</button></>}</div>
-      <div className="order-total-preview"><span>إجمالي الطلب مع التوصيل</span><strong>{quote ? money(total) : '—'}</strong></div>
+      <div className={`quote-card ${currentQuote ? 'ready' : ''}`}><div><Truck size={19} /><span>سعر التوصيل من درب السبيل</span></div><strong>{currentQuote ? money(currentQuote.deliveryFee) : quoting ? 'جاري الحساب…' : 'أكمل البيانات'}</strong>{currentQuote?.components.map((item, index) => <div className="quote-part" key={index}><span>{item.label}</span><b>{money(item.amount)}</b></div>)}{currentQuote && <small><Check size={14} /> تم حساب السعر حسب المنتج والعنوان والخدمة</small>}{quoteError && <><p className="form-error"><CircleAlert size={16} />{quoteError}</p><button className="btn ghost" onClick={() => setQuoteAttempt((n) => n + 1)}><RefreshCw size={16} /> إعادة حساب السعر</button></>}</div>
+      <div className="order-total-preview"><span>إجمالي الطلب مع التوصيل</span><strong>{currentQuote ? money(total) : '—'}</strong></div>
     </div>
-    <div className="drawer-footer"><button className="btn ghost" onClick={onClose}>إلغاء</button><button className="btn primary" disabled={busy || !quote || quoting} onClick={() => initial ? onCreate(form) : setConfirm(true)}>{initial ? 'حفظ التعديل' : 'مراجعة وإنشاء الشحنة'} <ArrowLeft size={17} /></button></div>
-  </section>{confirm && <div className="confirm-layer"><div className="confirm-card" role="dialog" aria-modal="true" aria-label="تأكيد إنشاء الشحنة"><span className="confirm-icon"><Truck size={25} /></span><h3>تأكيد الشحنة</h3><p>سيُرسل طلب <strong>{form.customer}</strong> إلى درب السبيل، ثم رسالة التأكيد للزبون.</p><div className="confirm-details"><span>{form.city}، {form.area}</span><strong>{money(quote?.deliveryFee || 0)} توصيل</strong></div><div className="confirm-details"><span>إجمالي الطلب</span><strong>{money(total)}</strong></div><div className="confirm-actions"><button className="btn ghost" onClick={() => setConfirm(false)}>مراجعة</button><button className="btn primary" disabled={busy} onClick={() => { setConfirm(false); onCreate({ ...form, deliveryFee: quote?.deliveryFee || 0 }); }}>{busy ? 'جاري الإرسال…' : 'تأكيد وإرسال'}</button></div></div></div>}</div>;
+    <div className="drawer-footer"><button className="btn ghost" onClick={onClose}>إلغاء</button><button className="btn primary" disabled={busy || !currentQuote || quoting} onClick={() => initial ? onCreate(form) : setConfirm(true)}>{initial ? 'حفظ التعديل' : 'مراجعة وإنشاء الشحنة'} <ArrowLeft size={17} /></button></div>
+  </section>{confirm && currentQuote && <div className="confirm-layer"><div className="confirm-card" role="dialog" aria-modal="true" aria-label="تأكيد إنشاء الشحنة"><span className="confirm-icon"><Truck size={25} /></span><h3>تأكيد الشحنة</h3><p>سيُرسل طلب <strong>{form.customer}</strong> إلى درب السبيل، ثم رسالة التأكيد للزبون.</p><div className="confirm-details"><span>{form.city}، {form.area}</span><strong>{money(currentQuote?.deliveryFee || 0)} توصيل</strong></div><div className="confirm-details"><span>إجمالي الطلب</span><strong>{money(total)}</strong></div><div className="confirm-actions"><button className="btn ghost" onClick={() => setConfirm(false)}>مراجعة</button><button className="btn primary" disabled={busy} onClick={() => { setConfirm(false); onCreate({ ...form, deliveryFee: currentQuote?.deliveryFee || 0 }); }}>{busy ? 'جاري الإرسال…' : 'تأكيد وإرسال'}</button></div></div></div>}</div>;
 }
