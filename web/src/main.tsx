@@ -384,10 +384,11 @@ function App() {
       {([
         ['overview', LayoutDashboard, 'الرئيسية'], ['orders', ClipboardList, 'الطلبات'],
         ['create', Plus, 'طلب جديد'],
-        ...(data.actor.role === 'admin' ? [['team', Users, 'الفريق']] as const : []), ['settings', Settings2, 'حسابي'],
+        ...(data.actor.role === 'admin' ? [['team', Users, 'الفريق']] as const : [['notifications', Bell, 'الإشعارات']] as const), ['settings', Settings2, 'حسابي'],
       ] as const).map(([key, Icon, label]) =>
-        <button type="button" key={key} className={`${view === key ? 'active' : ''} ${key === 'create' ? 'tab-create' : ''}`} aria-current={view === key ? 'page' : undefined} onClick={() => key === 'create' ? setFormOpen(true) : navigate(key)}>
+        <button type="button" key={key} className={`${key === 'notifications' ? notificationsOpen ? 'active' : '' : !notificationsOpen && view === key ? 'active' : ''} ${key === 'create' ? 'tab-create' : ''} ${key === 'notifications' ? 'tab-notifications' : ''}`} aria-label={key === 'notifications' ? `الإشعارات، ${unreadNotifications} غير مقروء` : undefined} aria-expanded={key === 'notifications' ? notificationsOpen : undefined} aria-current={view === key ? 'page' : undefined} onClick={() => key === 'create' ? setFormOpen(true) : key === 'notifications' ? setNotificationsOpen(true) : navigate(key)}>
           <Icon size={21} strokeWidth={1.8} aria-hidden="true" />
+          {key === 'notifications' && unreadNotifications > 0 && <b className="tab-unread" aria-hidden="true">{unreadNotifications}</b>}
           <span>{label}</span>
         </button>)}
     </nav>
