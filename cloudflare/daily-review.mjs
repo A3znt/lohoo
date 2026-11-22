@@ -43,6 +43,8 @@ export async function maybeSendMorningDigest(now = new Date()) {
   const reviewed = new Set(await dailyReviewedIds(date));
   const outstanding = orders.filter((order) => reviewable(order) && !reviewed.has(order.id)).length;
   const title = `ملخص صباح ${date}`;
-  const body = `${recent.length} طلب جديد خلال آخر 24 ساعة. ${outstanding} شحنة تنتظر فحصك اليوم في درب السبيل.`;
+  const codes = recent.slice(0, 4).map((order) => order.orderNumber).filter(Boolean);
+  const summary = codes.length ? ` أرقامها: ${codes.join('، ')}${recent.length > codes.length ? ' وغيرها' : ''}.` : '';
+  const body = `${recent.length} طلب جديد خلال آخر 24 ساعة.${summary} ${outstanding} شحنة تنتظر فحصك اليوم في درب السبيل.`;
   return createAdminNotification(`morning:${date}`, { kind: 'daily_digest', title, body });
 }

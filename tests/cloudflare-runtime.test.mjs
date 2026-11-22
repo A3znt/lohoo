@@ -453,7 +453,7 @@ test('admin order alert and morning digest are idempotent and use Tripoli time',
   assert.deepEqual(tripoliClock(now), { date: '2026-11-23', hour: 9 });
   await withContext({ DB: fakeD1() }, async () => {
     const id = '11111111-1111-4111-8111-111111111111';
-    await ordersStore().setJSON(`orders/${id}`, { id, createdAt: '2026-11-23T06:00:00Z',
+    await ordersStore().setJSON(`orders/${id}`, { id, orderNumber: '1234567', createdAt: '2026-11-23T06:00:00Z',
       status: 'confirmed', shipmentReference: '1234567' });
     await createAdminNotification(`new-order:${id}`, { kind: 'new_order', orderId: id,
       title: 'طلب جديد رقم 123', body: 'أُدخل بواسطة منى' });
@@ -466,6 +466,7 @@ test('admin order alert and morning digest are idempotent and use Tripoli time',
     const notices = await listNotifications('admin');
     assert.equal(notices.length, 2);
     assert.match(notices.find((item) => item.kind === 'daily_digest').body, /1 طلب جديد.*1 شحنة/);
+    assert.match(notices.find((item) => item.kind === 'daily_digest').body, /1234567/);
   });
 });
 
