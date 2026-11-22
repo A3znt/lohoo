@@ -1,4 +1,5 @@
 import { env, listOrders, resalaReady, sendStageSms, settings, syncOrder, syncSmsDelivery, updateOrder } from './core.mjs';
+import { maybeSendMorningDigest } from './daily-review.mjs';
 
 export default async function handler() {
   if (!env('APP_TOKEN')) return;
@@ -27,5 +28,7 @@ export default async function handler() {
   for (let index = 0; index < orders.length; index += 6) {
     await Promise.all(orders.slice(index, index + 6).map(syncOne));
   }
+  try { await maybeSendMorningDigest(); }
+  catch (error) { console.error('Morning digest failed', error instanceof Error ? error.message : error); }
 }
 

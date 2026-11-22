@@ -1,7 +1,8 @@
 import { removeOrder, createOrder, darb, editPendingShipment, env, json, listDeliveryLocations, listOrders, listWarehouseProducts, quoteOrder, readOrder, resalaReady, retryShipment, sameOrigin, shippingComponents, syncSmsDelivery,
   saveSettings, sendStageSms, settings, syncOrder, updateOrder } from './core.mjs';
 import { agentSessionCookie, changeOwnAgentPassword, createAgent, getActor, listAgents, publicAgent, readAgent, resetAgentPassword, setAgentEnabled, updateAgentProfile } from './team.mjs';
-import { createManualNotifications, listNotifications, markNotificationRead, removePushSubscription, savePushSubscription } from './notifications.mjs';
+import { createAdminNotification, createManualNotifications, listNotifications, markNotificationRead, removePushSubscription, savePushSubscription } from './notifications.mjs';
+import { dailyReviewedIds, reviewShipment, tripoliClock } from './daily-review.mjs';
 
 function commissionSummary(orders) {
   const earned = orders.reduce((sum, order) => sum + (order.commissionEarnedAt ? Number(order.commissionAmount || 0) : 0), 0);
@@ -38,7 +39,8 @@ export default async function handler(request) {
         return json({ ok: true, data: { actor, orders: orders.filter(o => !o.deletedAt), settings: await settings(), resalaConfigured: resalaReady(),
           notifications: await listNotifications(actor.id), vapidPublicKey: env('VAPID_PUBLIC_KEY'),
           agents: agents.map((agent) => ({ ...publicAgent(agent), ...commissionSummary(allOrders.filter((order) => order.agentId === agent.id)) })),
-          commission: commissionSummary(orders), walletEntries } });
+          commission: commissionSummary(orders), walletEntries,
+          dailyReviewDate: tripoliClock().date, dailyReviewedIds: isAdmin ? await dailyReviewedIds() : [] } });
       }
       case 'markNotificationRead':
         return json({ ok: true, data: await markNotificationRead(actor.id, input.id) });
@@ -105,7 +107,17 @@ export default async function handler(request) {
         if (requestedId && (!agent || !agent.enabled)) throw new Error('المندوبة المختارة غير متاحة.');
         const order = await createOrder(input.order || {}, agent, actor);
         if (!isAdmin && order.agentId !== actor.id) throw new Error('معرّف الطلب مستخدم. أنشئي طلبًا جديدًا.');
+        try {
+          await createAdminNotification(`new-order:${order.id}`, { kind: 'new_order', orderId: order.id,
+            title: `طلب جديد رقم ${order.orderNumber}`,
+            body: `${order.customer} · ${order.product} · أُدخل بواسطة ${order.createdByName}${order.status === 'attention' ? ' · يحتاج مراجعة الشحنة' : ''}` });
+        } catch (error) { console.error('New order notification failed', order.id, error instanceof Error ? error.message : error); }
         return json({ ok: true, data: order });
+      }
+      case 'reviewShipment': {
+        requireAdmin();
+        await requireOwnOrder(input.id);
+        return json({ ok: true, data: await reviewShipment(input.id) });
       }
       case 'updateOrder': {
         requireAdmin();

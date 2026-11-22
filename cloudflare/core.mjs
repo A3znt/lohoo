@@ -476,7 +476,7 @@ export async function removeOrder(id) {
   return updateOrder(id, { deletedAt: now, carrierDeletedAt: now, status: 'cancelled', darbStatus: 'deleted' });
 }
 
-export async function syncOrder(id) {
+export async function syncOrder(id, { requireFound = false } = {}) {
   const entry = await readOrder(id);
   if (!entry?.data?.shipmentReference || !['confirmed', 'on_way', 'postponed', 'delivery_failed'].includes(entry.data.status)) return entry?.data || null;
   const reference = encodeURIComponent(entry.data.shipmentReference);
@@ -486,7 +486,10 @@ export async function syncOrder(id) {
     record = exactShipment(await darb('GET', `/api/local/shipments/${entry.data.shipmentId}`), entry.data.shipmentReference);
   }
   const status = String(record?.status || '');
-  if (!status) return entry.data;
+  if (!status) {
+    if (requireFound) throw new Error('تعذر العثور على الشحنة في درب السبيل. لم نعتبرها مُراجَعة.');
+    return entry.data;
+  }
   const latest = (await readOrder(id))?.data;
   if (!latest || latest.carrierDeletedAt) return latest;
   let event = carrierEvent(record);

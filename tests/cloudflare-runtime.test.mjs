@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { generateKeyPairSync, scryptSync } from 'node:crypto';
 import { binding, ordersStore, withContext } from '../cloudflare/runtime.mjs';
 import { adminPasswordValid, editPendingShipment, isAuthenticated, listWarehouseProducts, removeOrder, sameOrigin, sessionCookie, syncOrder, warehouseSelection } from '../cloudflare/core.mjs';
-import { carrierEvent, createCarrierNotification, listNotifications, markNotificationRead, removePushSubscription, savePushSubscription } from '../cloudflare/notifications.mjs';
+import { carrierEvent, createAdminNotification, createCarrierNotification, listNotifications, markNotificationRead, removePushSubscription, savePushSubscription } from '../cloudflare/notifications.mjs';
+import { dailyReviewedIds, maybeSendMorningDigest, reviewShipment, tripoliClock } from '../cloudflare/daily-review.mjs';
 import ordersApi from '../cloudflare/api.mjs';
 import { agentSessionCookie, createAgent, loginAgent } from '../cloudflare/team.mjs';
 
@@ -443,6 +444,46 @@ test('a new carrier notification sends an encrypted web push to the subscribed a
       assert.match(String(sent.options.headers.authorization), /^vapid /);
       assert.ok(sent.options.body.byteLength > 0);
       assert.equal((await listNotifications(agentId)).length, 1);
+    });
+  } finally { globalThis.fetch = previousFetch; }
+});
+
+test('admin order alert and morning digest are idempotent and use Tripoli time', async () => {
+  const now = new Date('2026-11-23T07:05:00Z');
+  assert.deepEqual(tripoliClock(now), { date: '2026-11-23', hour: 9 });
+  await withContext({ DB: fakeD1() }, async () => {
+    const id = '11111111-1111-4111-8111-111111111111';
+    await ordersStore().setJSON(`orders/${id}`, { id, createdAt: '2026-11-23T06:00:00Z',
+      status: 'confirmed', shipmentReference: '1234567' });
+    await createAdminNotification(`new-order:${id}`, { kind: 'new_order', orderId: id,
+      title: 'طلب جديد رقم 123', body: 'أُدخل بواسطة منى' });
+    await createAdminNotification(`new-order:${id}`, { kind: 'new_order', orderId: id,
+      title: 'طلب جديد رقم 123', body: 'أُدخل بواسطة منى' });
+    assert.equal((await listNotifications('admin')).length, 1);
+    assert.equal(await maybeSendMorningDigest(new Date('2026-11-23T06:55:00Z')), null);
+    await maybeSendMorningDigest(now);
+    await maybeSendMorningDigest(now);
+    const notices = await listNotifications('admin');
+    assert.equal(notices.length, 2);
+    assert.match(notices.find((item) => item.kind === 'daily_digest').body, /1 طلب جديد.*1 شحنة/);
+  });
+});
+
+test('daily check fetches the Darb shipment before marking it reviewed', async () => {
+  const previousFetch = globalThis.fetch;
+  let found = false;
+  globalThis.fetch = async () => Response.json({ status: true,
+    data: { results: found ? [{ _id: 'aaaaaaaaaaaaaaaaaaaaaaaa', reference: '1234567', status: 'pending' }] : [] } });
+  try {
+    await withContext({ DB: fakeD1(), DARB_API_KEY: 'fixture', DARB_ACCOUNT_ID: 'fixture' }, async () => {
+      const id = '11111111-1111-4111-8111-111111111111';
+      await ordersStore().setJSON(`orders/${id}`, { id, createdAt: '2026-11-23T06:00:00Z', updatedAt: '2026-11-23T06:00:00Z',
+        status: 'confirmed', darbStatus: 'pending', shipmentReference: '1234567', shipmentId: 'aaaaaaaaaaaaaaaaaaaaaaaa' });
+      await assert.rejects(reviewShipment(id), /لم نعتبرها/);
+      assert.deepEqual(await dailyReviewedIds(), []);
+      found = true;
+      assert.equal((await reviewShipment(id)).order.shipmentReference, '1234567');
+      assert.deepEqual(await dailyReviewedIds(), [id]);
     });
   } finally { globalThis.fetch = previousFetch; }
 });

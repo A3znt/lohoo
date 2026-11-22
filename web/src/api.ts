@@ -20,11 +20,11 @@ export interface CommissionSummary { assigned: number; delivered: number; earned
 export interface WalletEntry { orderId: string; orderNumber?: string; customer: string; product: string; status: OrderStatus; createdAt: string; deletedAt: string; commissionAmount: number; commissionEarnedAt: string; commissionPaidAt: string }
 export interface AgentSummary extends CommissionSummary { id: string; name: string; username: string; enabled: boolean; createdAt: string }
 export interface Settings { serviceId: string; autoMessages: boolean }
-export interface NotificationRecord { id: string; agentId: string; orderId: string; kind: 'postponed' | 'delivery_failed' | 'cancelled' | 'manual'; title: string; body: string; reason: string; createdAt: string; readAt: string }
+export interface NotificationRecord { id: string; agentId: string; orderId: string; kind: 'postponed' | 'delivery_failed' | 'cancelled' | 'manual' | 'new_order' | 'daily_digest'; title: string; body: string; reason: string; createdAt: string; readAt: string }
 export interface Package { _id: string; title?: string; name?: string; price?: number; attributes?: string[] }
 export interface WarehouseVariant { id: string; sku: string; attributes: { key: string; value: string }[]; widthCM: number; heightCM: number; lengthCM: number; isFragile: boolean; allowInspection: boolean; allowTesting: boolean }
 export interface WarehouseProduct { id: string; name: string; salePrice: number; currency: string; isPublished: boolean; isReviewed: boolean; isBlocked: boolean; variants: WarehouseVariant[] }
-export interface Bootstrap { actor: Actor; orders: Order[]; settings: Settings; resalaConfigured: boolean; notifications: NotificationRecord[]; vapidPublicKey: string; agents: AgentSummary[]; commission: CommissionSummary; walletEntries: WalletEntry[] }
+export interface Bootstrap { actor: Actor; orders: Order[]; settings: Settings; resalaConfigured: boolean; notifications: NotificationRecord[]; vapidPublicKey: string; agents: AgentSummary[]; commission: CommissionSummary; walletEntries: WalletEntry[]; dailyReviewDate: string; dailyReviewedIds: string[] }
 export type OrderInput = Pick<Order, 'id' | 'source' | 'customer' | 'phone' | 'city' | 'area' | 'address' | 'product' | 'quantity' | 'unitPrice' | 'deliveryFee' | 'paid' | 'notes'> & { serviceId?: string; warehouseProductId: string; warehouseVariantId: string; agentId?: string };
 
 export class ApiError extends Error {

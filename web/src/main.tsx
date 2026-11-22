@@ -19,6 +19,7 @@ import './sms.css';
 import OrderForm from './OrderForm';
 import CopyButton from './CopyButton';
 import NotificationsPanel from './NotificationsPanel';
+import DailyReviewPanel from './DailyReviewPanel';
 import TeamPage from './TeamPage';
 import AgentSettingsPage from './AgentSettingsPage';
 import WalletPage from './WalletPage';
@@ -38,7 +39,7 @@ const emptyBootstrap = (actor: Actor = { role: 'admin', id: 'admin', name: 'ال
   actor, orders: [], settings: { serviceId: '', autoMessages: true },
   resalaConfigured: false, notifications: [], vapidPublicKey: '', agents: [],
   commission: { assigned: 0, delivered: 0, earned: 0, paid: 0, due: 0 },
-  walletEntries: [],
+  walletEntries: [], dailyReviewDate: '', dailyReviewedIds: [],
 });
 
 function IconBox({ icon: Icon, tone = 'teal' }: { icon: typeof Box; tone?: string }) { return <span className={`icon-box ${tone}`}><Icon size={20} strokeWidth={1.8} /></span>; }
@@ -340,6 +341,7 @@ function App() {
             <Metric icon={Truck} label="طلبات في الطريق" value={String(metrics.onWay)} note="مع درب السبيل" tone="blue" />
             {data.actor.role === 'admin' ? <><Metric icon={CreditCard} label="قيمة الطلبات" value={money(metrics.revenue)} note="باستثناء المرتجع والملغي" tone="amber" /><Metric icon={ArrowDownLeft} label="المتبقي للتحصيل" value={money(metrics.due)} note={`${money(metrics.paid)} تم تحصيلها`} tone="rose" /></> : <><Metric icon={Wallet} label="عمولتي المستحقة" value={money(data.commission.earned)} note="15 د.ل بعد التسليم لكل طلب" tone="amber" /><Metric icon={ArrowDownLeft} label="المتبقي لي" value={money(data.commission.due)} note={`${money(data.commission.paid)} تم صرفها`} tone="rose" /></>}
           </div>
+          {data.actor.role === 'admin' && <DailyReviewPanel orders={data.orders} reviewedIds={data.dailyReviewedIds} date={data.dailyReviewDate} busy={busy} onOpen={setSelected} onReview={async (id) => { try { await action(() => api('reviewShipment', { id }), 'تم فحص الشحنة في درب السبيل وتسجيل مراجعتها اليوم'); } catch { /* action displays the error */ } }} />}
           <section className="insights-panel" aria-labelledby="activity-title">
             <div className="insights-copy"><span className="insights-kicker"><Sparkles size={16} /> نظرة على النشاط</span><h2 id="activity-title">حركة الطلبات</h2><p>عدد الطلبات المسجلة خلال آخر سبعة أيام حسب توقيت جهازك.</p><div className="insights-number"><strong>{weekTotal}</strong><small>طلب خلال ٧ أيام</small></div></div>
             <div className="activity-chart" role="img" aria-label={`نشاط الطلبات خلال الأسبوع: ${weeklyActivity.map((day) => `${day.label}: ${day.count} طلب`).join('، ')}`}>
@@ -422,7 +424,7 @@ function App() {
         }
       } catch { /* toast explains the error */ }
     }} busy={busy} actor={data.actor} agents={data.agents} resalaConfigured={data.resalaConfigured} />}
-    {notificationsOpen && <NotificationsPanel items={data.notifications} actor={data.actor} agents={data.agents} phoneSupported={phoneSupported} phoneEnabled={phoneEnabled} busy={busy} onClose={() => setNotificationsOpen(false)} onEnablePhone={() => void enablePhoneNotifications()} onDisablePhone={() => void disablePhoneNotifications()} onRead={(item) => void markRead(item)} onSend={async (recipient, title, body) => { const result = await action(() => api<{ count: number }>('sendNotification', { recipient, title, body })); setToast(`تم إرسال الإشعار إلى ${result.count} حساب.`); }} onOpen={(item) => { void markRead(item); setNotificationsOpen(false); const order = data.orders.find((row) => row.id === item.orderId); if (order) setSelected(order); else setToast('هذه الطلبية لم تعد ضمن طلباتك الحالية.'); }} />}
+    {notificationsOpen && <NotificationsPanel items={data.notifications} actor={data.actor} agents={data.agents} phoneSupported={phoneSupported} phoneEnabled={phoneEnabled} busy={busy} onClose={() => setNotificationsOpen(false)} onEnablePhone={() => void enablePhoneNotifications()} onDisablePhone={() => void disablePhoneNotifications()} onRead={(item) => void markRead(item)} onSend={async (recipient, title, body) => { const result = await action(() => api<{ count: number }>('sendNotification', { recipient, title, body })); setToast(`تم إرسال الإشعار إلى ${result.count} حساب.`); }} onOpen={(item) => { void markRead(item); setNotificationsOpen(false); if (item.kind === 'daily_digest') { navigate('overview'); return; } const order = data.orders.find((row) => row.id === item.orderId); if (order) setSelected(order); else setToast('هذه الطلبية لم تعد ضمن طلباتك الحالية.'); }} />}
     {toast && <div className="toast" role="status" aria-live="polite"><Bell size={18} /><span>{toast}</span><button onClick={() => setToast('')} aria-label="إغلاق"><X size={15} /></button></div>}
   </div>;
 }

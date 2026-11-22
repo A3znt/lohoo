@@ -119,6 +119,15 @@ export async function createManualNotifications(recipientIds, title, body) {
   return { count: recipients.length };
 }
 
+export async function createAdminNotification(key, { kind, orderId = '', title, body }) {
+  const id = (await pushKey(`admin:${key}`)).slice(5);
+  const notification = { id, agentId: 'admin', orderId, kind, title, body, reason: '',
+    createdAt: new Date().toISOString(), readAt: '' };
+  const result = await ordersStore().setJSON(notificationKey('admin', id), notification, { onlyIfNew: true });
+  if (result.modified) await sendPush('admin', notification);
+  return notification;
+}
+
 export async function createCarrierNotification(order, event) {
   const agentId = agentIdValid(order.agentId) ? order.agentId : agentIdValid(order.createdById) ? order.createdById : '';
   const signature = `${order.id}\n${event.kind}\n${event.reason}\n${event.eventId}`;
