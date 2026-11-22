@@ -123,12 +123,13 @@ export default async function handler(request) {
         return json({ ok: true, data: await retryShipment(input.id, input.destination || {}) });
       }
       case 'retryMessage': {
-        requireAdmin();
         const entry = await requireOwnOrder(input.id);
         const stage = input.stage === 'onWay' ? 'onWay' : 'confirmation';
         const field = stage === 'onWay' ? 'onWaySms' : 'confirmationSms';
-        if (entry.data[field] !== 'failed') throw new Error('راجع سجل الرسائل قبل إعادة الإرسال؛ قد تكون الرسالة وصلت.');
-        await updateOrder(input.id, { [field]: 'pending' });
+        if (!entry.data.shipmentReference || entry.data.carrierDeletedAt) throw new Error('لا يمكن إرسال رسالة قبل إنشاء الشحنة.');
+        if (stage === 'onWay' && !['on_way', 'delivered'].includes(entry.data.status)) throw new Error('رسالة الطريق متاحة بعد خروج الشحنة للتوصيل.');
+        if (!['pending', 'needs_key', 'failed'].includes(entry.data[field])) throw new Error('راجع حالة الرسالة في رِسالة قبل محاولة ثانية؛ قد تكون وصلت بالفعل.');
+        if (entry.data[field] === 'failed') await updateOrder(input.id, { [field]: 'pending', [`${field}Error`]: '' }, entry.etag);
         return json({ ok: true, data: await sendStageSms(input.id, stage) });
       }
       case 'createAgent':

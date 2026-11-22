@@ -5,7 +5,7 @@ import { binding, ordersStore, withContext } from '../cloudflare/runtime.mjs';
 import { adminPasswordValid, editPendingShipment, isAuthenticated, removeOrder, sameOrigin, sessionCookie, syncOrder } from '../cloudflare/core.mjs';
 import { carrierEvent, createCarrierNotification, listNotifications, markNotificationRead, removePushSubscription, savePushSubscription } from '../cloudflare/notifications.mjs';
 import ordersApi from '../cloudflare/api.mjs';
-import { agentSessionCookie, loginAgent } from '../cloudflare/team.mjs';
+import { agentSessionCookie, createAgent, loginAgent } from '../cloudflare/team.mjs';
 
 test('admin manages agent credentials and pays only delivered unpaid commissions', async () => {
   await withContext({ DB: fakeD1(), APP_TOKEN: 'test-admin-token' }, async () => {
@@ -90,6 +90,46 @@ test('agent wallet includes only their ledger and preserves paid archived orders
     assert.deepEqual({ earned: result.data.commission.earned, paid: result.data.commission.paid, due: result.data.commission.due }, { earned: 15, paid: 15, due: 0 });
     assert.ok(result.data.walletEntries.every((entry) => !('phone' in entry) && !('address' in entry)));
   });
+});
+
+test('an agent can retry only their failed SMS, and a successful send cannot be duplicated', async () => {
+  const originalFetch = globalThis.fetch;
+  let balanceAvailable = false;
+  let sends = 0;
+  globalThis.fetch = async (url) => {
+    assert.match(String(url), /resala\.ly\/api\/v1\/messages\/send-template/);
+    sends += 1;
+    return Response.json(balanceAvailable
+      ? { succeeded: 1, failed: 0, failed_numbers: [], invalid_numbers: [], sms_template_version: { id: 'approved-version' } }
+      : { status: 400, type: 'InsufficientCredit' }, { status: balanceAvailable ? 201 : 400 });
+  };
+  try {
+    await withContext({ DB: fakeD1(), APP_TOKEN: 'test-admin-token', RESALA_API_KEY: 'test-resala-key', RESALA_CONFIRM_TEMPLATE_ID: 'approved-template' }, async () => {
+      const muna = await createAgent({ name: 'منى', username: 'muna', password: 'muna@123' });
+      const saja = await createAgent({ name: 'سجى', username: 'saja', password: 'saja@123' });
+      const id = '77777777-7777-4777-8777-777777777777';
+      await ordersStore().setJSON(`orders/${id}`, { id, agentId: muna.id, status: 'confirmed', shipmentReference: '2384360',
+        phone: '218910001234', orderNumber: '123456789012', confirmationSms: 'failed', confirmationSmsError: 'InsufficientCredit' });
+      const call = async (agent) => {
+        const cookie = agentSessionCookie(await loginAgent(agent.username, agent.password)).split(';')[0];
+        const response = await ordersApi(new Request('https://rukn.example/api/orders', { method: 'POST',
+          headers: { Cookie: cookie, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'retryMessage', id, stage: 'confirmation' }) }));
+        return response.json();
+      };
+      assert.equal((await call({ username: saja.username, password: 'saja@123' })).ok, false);
+      assert.equal(sends, 0);
+      const blocked = await call({ username: muna.username, password: 'muna@123' });
+      assert.equal(blocked.data.confirmationSms, 'failed');
+      assert.equal(blocked.data.confirmationSmsError, 'InsufficientCredit');
+      balanceAvailable = true;
+      const sent = await call({ username: muna.username, password: 'muna@123' });
+      assert.equal(sent.data.confirmationSms, 'sent');
+      assert.equal(sent.data.confirmationSmsError, '');
+      assert.equal((await call({ username: muna.username, password: 'muna@123' })).ok, false);
+      assert.equal(sends, 2);
+    });
+  } finally { globalThis.fetch = originalFetch; }
 });
 
 function fakeD1() {
