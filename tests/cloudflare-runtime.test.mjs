@@ -62,6 +62,36 @@ test('admin manages agent credentials and pays only delivered unpaid commissions
   });
 });
 
+test('agent wallet includes only their ledger and preserves paid archived orders', async () => {
+  await withContext({ DB: fakeD1(), APP_TOKEN: 'test-admin-token' }, async () => {
+    const adminCall = async (agent) => {
+      const response = await ordersApi(new Request('https://rukn.example/api/orders', {
+        method: 'POST', headers: { Authorization: 'Bearer test-admin-token', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'createAgent', agent }),
+      }));
+      return (await response.json()).data;
+    };
+    const muna = await adminCall({ name: 'منى', username: 'muna', password: 'muna@123' });
+    const saja = await adminCall({ name: 'سجى', username: 'saja', password: 'saja@123' });
+    const rows = [
+      { id: '11111111-1111-4111-8111-111111111111', agentId: muna.id, status: 'delivered', commissionAmount: 15, commissionEarnedAt: '2026-11-22', commissionPaidAt: '2026-11-23', deletedAt: '2026-11-24' },
+      { id: '22222222-2222-4222-8222-222222222222', agentId: muna.id, status: 'confirmed', commissionAmount: 0, commissionEarnedAt: '', commissionPaidAt: '' },
+      { id: '33333333-3333-4333-8333-333333333333', agentId: saja.id, status: 'delivered', commissionAmount: 15, commissionEarnedAt: '2026-11-22', commissionPaidAt: '' },
+    ];
+    for (const row of rows) await ordersStore().setJSON(`orders/${row.id}`, { ...row, createdAt: '2026-11-20', customer: 'زبون', product: 'منتج' });
+    const cookie = agentSessionCookie(await loginAgent('muna', 'muna@123')).split(';')[0];
+    const response = await ordersApi(new Request('https://rukn.example/api/orders', {
+      method: 'POST', headers: { Cookie: cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'bootstrap' }),
+    }));
+    const result = await response.json();
+    assert.equal(result.ok, true);
+    assert.equal(result.data.orders.length, 1);
+    assert.deepEqual(result.data.walletEntries.map((entry) => entry.orderId).sort(), rows.slice(0, 2).map((row) => row.id).sort());
+    assert.deepEqual({ earned: result.data.commission.earned, paid: result.data.commission.paid, due: result.data.commission.due }, { earned: 15, paid: 15, due: 0 });
+    assert.ok(result.data.walletEntries.every((entry) => !('phone' in entry) && !('address' in entry)));
+  });
+});
+
 function fakeD1() {
   const records = new Map();
   return {

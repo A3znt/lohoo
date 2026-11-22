@@ -29,10 +29,16 @@ export default async function handler(request) {
         const allOrders = await listOrders();
         const orders = isAdmin ? allOrders : allOrders.filter((order) => order.agentId === actor.id);
         const agents = isAdmin ? await listAgents() : [];
+        const walletEntries = isAdmin ? [] : orders.filter((order) => !order.deletedAt || order.commissionEarnedAt || order.commissionPaidAt).map((order) => ({
+          orderId: order.id, orderNumber: order.orderNumber, customer: order.customer, product: order.product,
+          status: order.status, createdAt: order.createdAt, deletedAt: order.deletedAt || '',
+          commissionAmount: Number(order.commissionAmount || 0), commissionEarnedAt: order.commissionEarnedAt || '',
+          commissionPaidAt: order.commissionPaidAt || '',
+        }));
         return json({ ok: true, data: { actor, orders: orders.filter(o => !o.deletedAt), settings: await settings(), resalaConfigured: resalaReady(),
           notifications: isAdmin ? [] : await listNotifications(actor.id), vapidPublicKey: isAdmin ? '' : env('VAPID_PUBLIC_KEY'),
           agents: agents.map((agent) => ({ ...publicAgent(agent), ...commissionSummary(allOrders.filter((order) => order.agentId === agent.id)) })),
-          commission: commissionSummary(orders) } });
+          commission: commissionSummary(orders), walletEntries } });
       }
       case 'markNotificationRead':
         if (isAdmin) throw new Error('الإشعارات مخصصة للمندوبات.');

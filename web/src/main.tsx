@@ -14,16 +14,18 @@ import '@fontsource/ibm-plex-sans-arabic/arabic-700.css';
 import './style.css';
 import './aurora-theme.css';
 import './rukn-theme.css';
+import './wallet.css';
 import OrderForm from './OrderForm';
 import CopyButton from './CopyButton';
 import NotificationsPanel from './NotificationsPanel';
 import TeamPage from './TeamPage';
 import AgentSettingsPage from './AgentSettingsPage';
+import WalletPage from './WalletPage';
 import { exportOrdersCsv } from './order-export.mjs';
 import { dashboardMetrics, filterOrders, sortOrders, weeklyOrderActivity, type OrderSort } from './order-view';
 import { ApiError, api, login, loginAgent, logout, money, orderNumber, orderTotal, session, type Actor, type AgentSummary, type Bootstrap, type NotificationRecord, type Order, type OrderInput, type OrderStatus, type Package, type Settings } from './api';
 
-type View = 'overview' | 'orders' | 'shipping' | 'team' | 'settings';
+type View = 'overview' | 'orders' | 'shipping' | 'wallet' | 'team' | 'settings';
 const statusText: Record<OrderStatus, string> = {
   creating: 'جاري إنشاء الشحنة', confirmed: 'تم التأكيد', on_way: 'في الطريق', postponed: 'مؤجل', delivery_failed: 'تعذّر التوصيل', delivered: 'تم التسليم',
   returned: 'مرتجع', cancelled: 'ملغي', attention: 'يحتاج مراجعة',
@@ -35,6 +37,7 @@ const emptyBootstrap = (actor: Actor = { role: 'admin', id: 'admin', name: 'ال
   actor, orders: [], settings: { serviceId: '', autoMessages: true },
   resalaConfigured: false, notifications: [], vapidPublicKey: '', agents: [],
   commission: { assigned: 0, delivered: 0, earned: 0, paid: 0, due: 0 },
+  walletEntries: [],
 });
 
 function IconBox({ icon: Icon, tone = 'teal' }: { icon: typeof Box; tone?: string }) { return <span className={`icon-box ${tone}`}><Icon size={20} strokeWidth={1.8} /></span>; }
@@ -299,7 +302,7 @@ function App() {
         <p>القائمة الرئيسية</p>
         {([
           ['overview', LayoutDashboard, 'نظرة عامة'], ['orders', ClipboardList, 'الطلبات'],
-          ['shipping', Truck, 'الشحن والتوصيل'], ...(data.actor.role === 'admin' ? [['team', Users, 'المندوبات']] as const : []), ['settings', Settings2, 'الإعدادات'],
+          ['shipping', Truck, 'الشحن والتوصيل'], ...(data.actor.role === 'admin' ? [['team', Users, 'المندوبات']] as const : [['wallet', Wallet, 'محفظتي']] as const), ['settings', Settings2, 'الإعدادات'],
         ] as const).map(([key, Icon, label]) => <button type="button" key={key} className={view === key ? 'active' : ''} aria-current={view === key ? 'page' : undefined} onClick={() => navigate(key)}><Icon size={19} strokeWidth={1.9} /><span>{label}</span>{key === 'orders' && <b>{metrics.total}</b>}</button>)}
       </nav>
       <div className="sidebar-bottom">
@@ -309,7 +312,7 @@ function App() {
     </aside>
 
     <main className="main" id="lohoo-main">
-      <header className="topbar"><div className="topbar-right"><button className="icon-button menu-button" aria-label="القائمة" onClick={() => setMenuOpen(true)}><Menu size={22} /></button><div className="breadcrumb">مساحة العمل <ChevronLeft size={15} /> <b>{view === 'overview' ? 'نظرة عامة' : view === 'orders' ? 'الطلبات' : view === 'shipping' ? 'الشحن والتوصيل' : view === 'team' ? 'المندوبات' : 'الإعدادات'}</b></div></div><div className="topbar-left">{data.actor.role === 'agent' && <button type="button" className="notification-trigger" aria-label={`الإشعارات، ${unreadNotifications} غير مقروء`} title="الإشعارات" onClick={() => setNotificationsOpen(true)}><Bell size={20} />{unreadNotifications > 0 && <span className="notification-badge">{unreadNotifications}</span>}</button>}<span className={`sync-time ${syncError ? 'has-error' : ''}`} role="status">{syncError ? 'تعذر التحديث' : lastSyncedAt ? `آخر تحديث ${lastSyncedAt.toLocaleTimeString('ar-LY', { hour: 'numeric', minute: '2-digit' })}` : 'جاري تحميل البيانات'}</span><button type="button" className="sync-button" aria-label="تحديث الطلبات" title="تحديث الطلبات" disabled={refreshing} onClick={() => void refresh().catch(() => {})}><RefreshCw size={16} className={refreshing ? 'spin' : ''} /><span>تحديث</span></button><span className="date-pill"><Clock3 size={15} />{today}</span><span className="top-avatar">{data.actor.name.slice(0, 1)}</span></div></header>
+      <header className="topbar"><div className="topbar-right"><button className="icon-button menu-button" aria-label="القائمة" onClick={() => setMenuOpen(true)}><Menu size={22} /></button><div className="breadcrumb">مساحة العمل <ChevronLeft size={15} /> <b>{view === 'overview' ? 'نظرة عامة' : view === 'orders' ? 'الطلبات' : view === 'shipping' ? 'الشحن والتوصيل' : view === 'wallet' ? 'محفظتي' : view === 'team' ? 'المندوبات' : 'الإعدادات'}</b></div></div><div className="topbar-left">{data.actor.role === 'agent' && <button type="button" className="notification-trigger" aria-label={`الإشعارات، ${unreadNotifications} غير مقروء`} title="الإشعارات" onClick={() => setNotificationsOpen(true)}><Bell size={20} />{unreadNotifications > 0 && <span className="notification-badge">{unreadNotifications}</span>}</button>}<span className={`sync-time ${syncError ? 'has-error' : ''}`} role="status">{syncError ? 'تعذر التحديث' : lastSyncedAt ? `آخر تحديث ${lastSyncedAt.toLocaleTimeString('ar-LY', { hour: 'numeric', minute: '2-digit' })}` : 'جاري تحميل البيانات'}</span><button type="button" className="sync-button" aria-label="تحديث الطلبات" title="تحديث الطلبات" disabled={refreshing} onClick={() => void refresh().catch(() => {})}><RefreshCw size={16} className={refreshing ? 'spin' : ''} /><span>تحديث</span></button><span className="date-pill"><Clock3 size={15} />{today}</span><span className="top-avatar">{data.actor.name.slice(0, 1)}</span></div></header>
       <div className="content">
         {syncError && <div className="sync-warning" role="alert"><CircleAlert size={19} /><span>تعذر تحديث البيانات: {syncError}. {lastSyncedAt ? 'قد تكون الأرقام قديمة.' : 'لم يتم تحميل الطلبات بعد.'}</span><button type="button" disabled={refreshing} onClick={() => void refresh().catch(() => {})}>إعادة المحاولة</button></div>}
         {!lastSyncedAt && <div className="initial-data-loading" role="status">{refreshing ? <div className="spinner" /> : <CircleAlert size={20} />}<span>{refreshing ? 'جاري جلب الطلبات والبيانات من الخادم…' : 'لا يمكن عرض أرقام الطلبات حتى ينجح التحديث. اضغط إعادة المحاولة أعلاه.'}</span></div>}
@@ -376,6 +379,7 @@ function App() {
         </>}
 
         {lastSyncedAt && view === 'team' && data.actor.role === 'admin' && <TeamPage agents={data.agents} busy={busy} run={action} />}
+        {lastSyncedAt && view === 'wallet' && data.actor.role === 'agent' && <WalletPage entries={data.walletEntries} summary={data.commission} orders={data.orders} refreshing={refreshing} onRefresh={() => void refresh().catch(() => {})} onOpenOrder={setSelected} />}
         {lastSyncedAt && view === 'settings' && data.actor.role === 'admin' && <SettingsPage settings={data.settings} resalaConfigured={data.resalaConfigured} busy={busy} onSave={async (next) => { try { await action(() => api<Settings>('saveSettings', { settings: next }), 'تم حفظ الإعدادات'); } catch { /* toast */ } }} />}
         {lastSyncedAt && view === 'settings' && data.actor.role === 'agent' && <AgentSettingsPage busy={busy} run={action} />}
       </div>
@@ -384,11 +388,10 @@ function App() {
       {([
         ['overview', LayoutDashboard, 'الرئيسية'], ['orders', ClipboardList, 'الطلبات'],
         ['create', Plus, 'طلب جديد'],
-        ...(data.actor.role === 'admin' ? [['team', Users, 'الفريق']] as const : [['notifications', Bell, 'الإشعارات']] as const), ['settings', Settings2, 'حسابي'],
+        ...(data.actor.role === 'admin' ? [['team', Users, 'الفريق']] as const : [['wallet', Wallet, 'محفظتي']] as const), ['settings', Settings2, 'حسابي'],
       ] as const).map(([key, Icon, label]) =>
-        <button type="button" key={key} className={`${key === 'notifications' ? notificationsOpen ? 'active' : '' : !notificationsOpen && view === key ? 'active' : ''} ${key === 'create' ? 'tab-create' : ''} ${key === 'notifications' ? 'tab-notifications' : ''}`} aria-label={key === 'notifications' ? `الإشعارات، ${unreadNotifications} غير مقروء` : undefined} aria-expanded={key === 'notifications' ? notificationsOpen : undefined} aria-current={view === key ? 'page' : undefined} onClick={() => key === 'create' ? setFormOpen(true) : key === 'notifications' ? setNotificationsOpen(true) : navigate(key)}>
+        <button type="button" key={key} className={`${!notificationsOpen && view === key ? 'active' : ''} ${key === 'create' ? 'tab-create' : ''}`} aria-current={view === key ? 'page' : undefined} onClick={() => key === 'create' ? setFormOpen(true) : navigate(key)}>
           <Icon size={21} strokeWidth={1.8} aria-hidden="true" />
-          {key === 'notifications' && unreadNotifications > 0 && <b className="tab-unread" aria-hidden="true">{unreadNotifications}</b>}
           <span>{label}</span>
         </button>)}
     </nav>
