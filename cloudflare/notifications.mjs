@@ -2,6 +2,7 @@ import { buildPushPayload } from '@block65/webcrypto-web-push';
 import { binding, ordersStore } from './runtime.mjs';
 
 const agentIdValid = (id) => /^[a-f0-9-]{36}$/i.test(String(id || ''));
+const recipientValid = (id) => id === 'admin' || agentIdValid(id);
 const notificationKey = (agentId, id) => `notifications/${agentId}/${id}`;
 const pushKey = async (endpoint) => `push/${[...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(endpoint)))].map((byte) => byte.toString(16).padStart(2, '0')).join('')}`;
 const safeText = (value) => {
@@ -34,14 +35,14 @@ export function carrierEvent(record) {
 }
 
 export async function listNotifications(agentId) {
-  if (!agentIdValid(agentId)) return [];
+  if (!recipientValid(agentId)) return [];
   const { blobs } = await ordersStore().list({ prefix: `notifications/${agentId}/` });
   const rows = await Promise.all(blobs.map(({ key }) => ordersStore().get(key)));
   return rows.filter(Boolean).sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 100);
 }
 
 export async function markNotificationRead(agentId, id) {
-  if (!agentIdValid(agentId) || !/^[a-f0-9]{64}$/.test(String(id || ''))) throw new Error('الإشعار غير صحيح.');
+  if (!recipientValid(agentId) || !/^[a-f0-9]{64}$/.test(String(id || ''))) throw new Error('الإشعار غير صحيح.');
   const key = notificationKey(agentId, id);
   const entry = await ordersStore().getWithMetadata(key);
   if (!entry) throw new Error('الإشعار غير موجود.');
@@ -62,7 +63,7 @@ function validEndpoint(value) {
 }
 
 export async function savePushSubscription(agentId, value) {
-  if (!agentIdValid(agentId) || !validEndpoint(value?.endpoint) ||
+  if (!recipientValid(agentId) || !validEndpoint(value?.endpoint) ||
     !/^[\w-]{80,120}$/.test(value?.keys?.p256dh || '') || !/^[\w-]{15,40}$/.test(value?.keys?.auth || '')) {
     throw new Error('بيانات إشعارات الهاتف غير صالحة.');
   }
@@ -73,7 +74,7 @@ export async function savePushSubscription(agentId, value) {
 }
 
 export async function removePushSubscription(agentId, endpoint) {
-  if (!agentIdValid(agentId) || !validEndpoint(endpoint)) return { enabled: false };
+  if (!recipientValid(agentId) || !validEndpoint(endpoint)) return { enabled: false };
   const key = await pushKey(endpoint);
   const entry = await ordersStore().getWithMetadata(key);
   if (entry?.data?.agentId === agentId) await ordersStore().setJSON(key, { agentId: '', subscription: null, updatedAt: new Date().toISOString() }, { onlyIfMatch: entry.etag });
@@ -97,17 +98,42 @@ async function sendPush(agentId, notification) {
   }));
 }
 
+export async function createManualNotifications(recipientIds, title, body) {
+  const cleanTitle = String(title || '').trim();
+  const cleanBody = String(body || '').trim();
+  if (!cleanTitle || cleanTitle.length > 80 || !cleanBody || cleanBody.length > 500) {
+    throw new Error('اكتب عنوانًا حتى 80 حرفًا ورسالة حتى 500 حرف.');
+  }
+  const recipients = [...new Set(recipientIds)];
+  if (!recipients.length || recipients.length > 50 || recipients.some((id) => !recipientValid(id))) {
+    throw new Error('المستلمون غير صالحين.');
+  }
+  const createdAt = new Date().toISOString();
+  await Promise.all(recipients.map(async (agentId) => {
+    const id = (await pushKey(crypto.randomUUID())).slice(5);
+    const notification = { id, agentId, orderId: '', kind: 'manual', title: cleanTitle, body: cleanBody,
+      reason: '', createdAt, readAt: '' };
+    await ordersStore().setJSON(notificationKey(agentId, id), notification, { onlyIfNew: true });
+    await sendPush(agentId, notification);
+  }));
+  return { count: recipients.length };
+}
+
 export async function createCarrierNotification(order, event) {
   const agentId = agentIdValid(order.agentId) ? order.agentId : agentIdValid(order.createdById) ? order.createdById : '';
-  if (!agentId) return null;
   const signature = `${order.id}\n${event.kind}\n${event.reason}\n${event.eventId}`;
   const id = (await pushKey(signature)).slice(5);
   const title = event.kind === 'postponed' ? 'طلبية مؤجّلة' : event.kind === 'cancelled' ? 'طلبية ملغية' : 'تعذّر توصيل الطلبية';
   const number = order.orderNumber || order.id.slice(0, 8);
   const body = `طلبية ${number} · ${order.customer}${event.reason ? ` — السبب: ${event.reason}` : ' — لم يذكر درب السبيل سببًا بعد.'}`;
-  const notification = { id, agentId, orderId: order.id, kind: event.kind, title, body,
-    reason: event.reason, createdAt: new Date().toISOString(), readAt: '' };
-  const result = await ordersStore().setJSON(notificationKey(agentId, id), notification, { onlyIfNew: true });
-  if (result.modified) await sendPush(agentId, notification);
-  return notification;
+  const createdAt = new Date().toISOString();
+  const recipients = agentId ? [agentId, 'admin'] : ['admin'];
+  const notifications = await Promise.all(recipients.map(async (recipient) => {
+    const notification = { id, agentId: recipient, orderId: order.id, kind: event.kind, title, body,
+      reason: event.reason, createdAt, readAt: '' };
+    const result = await ordersStore().setJSON(notificationKey(recipient, id), notification, { onlyIfNew: true });
+    if (result.modified) await sendPush(recipient, notification);
+    return notification;
+  }));
+  return notifications[0];
 }

@@ -92,6 +92,39 @@ test('agent wallet includes only their ledger and preserves paid archived orders
   });
 });
 
+test('admin sends private notifications to herself or agents, while agents cannot send', async () => {
+  await withContext({ DB: fakeD1(), APP_TOKEN: 'test-admin-token' }, async () => {
+    const muna = await createAgent({ name: 'منى', username: 'muna', password: 'muna@123' });
+    const saja = await createAgent({ name: 'سجى', username: 'saja', password: 'saja@123' });
+    const call = async (action, input = {}, cookie = '') => {
+      const response = await ordersApi(new Request('https://rukn.example/api/orders', { method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(cookie ? { Cookie: cookie } : { Authorization: 'Bearer test-admin-token' }) },
+        body: JSON.stringify({ action, ...input }) }));
+      return response.json();
+    };
+    const agentCookie = agentSessionCookie(await loginAgent('muna', 'muna@123')).split(';')[0];
+    assert.equal((await call('sendNotification', { recipient: 'admin', title: 'تنبيه', body: 'تجربة' }, agentCookie)).ok, false);
+    assert.equal((await call('sendNotification', { recipient: 'missing', title: 'تنبيه', body: 'تجربة' })).ok, false);
+    assert.equal((await call('sendNotification', { recipient: 'admin', title: ' ', body: 'تجربة' })).ok, false);
+    assert.deepEqual((await call('sendNotification', { recipient: 'admin', title: 'تنبيه', body: 'تجربة' })).data, { count: 1 });
+    assert.equal((await listNotifications('admin')).length, 1);
+    assert.equal((await call('sendNotification', { recipient: 'all', title: 'متابعة', body: 'راجعوا الطلبات' })).data.count, 2);
+    assert.equal((await listNotifications(muna.id)).length, 1);
+    assert.equal((await listNotifications(saja.id)).length, 1);
+    assert.deepEqual((await call('bootstrap')).data.notifications.map((item) => item.title), ['تنبيه']);
+    const own = (await listNotifications('admin'))[0];
+    assert.equal((await call('markNotificationRead', { id: own.id }, agentCookie)).ok, false);
+    assert.ok((await call('markNotificationRead', { id: own.id })).data.readAt);
+    assert.equal((await call('sendNotification', { recipient: muna.id, title: 'خاص', body: 'مراجعة الطلب' })).data.count, 1);
+    assert.equal((await listNotifications(muna.id)).length, 2);
+    assert.equal((await listNotifications(saja.id)).length, 1);
+    assert.equal((await call('sendNotification', { recipient: 'team', title: 'للجميع', body: 'اجتماع اليوم' })).data.count, 3);
+    assert.equal((await listNotifications('admin')).length, 2);
+    assert.equal((await listNotifications(muna.id)).length, 3);
+    assert.equal((await listNotifications(saja.id)).length, 2);
+  });
+});
+
 test('an agent can retry only their failed SMS, and a successful send cannot be duplicated', async () => {
   const originalFetch = globalThis.fetch;
   let balanceAvailable = false;
@@ -297,10 +330,12 @@ test('Darb postponement, failed delivery and cancellation notify only the respon
       await syncOrder(id);
       let notices = await listNotifications(muna);
       assert.equal(notices.length, 1);
+      assert.equal((await listNotifications('admin')).length, 1);
       assert.match(notices[0].body, /طلب الزبون التأجيل/);
       assert.equal((await ordersStore().get(`orders/${id}`)).status, 'postponed');
       await syncOrder(id);
       assert.equal((await listNotifications(muna)).length, 1);
+      assert.equal((await listNotifications('admin')).length, 1);
       assert.deepEqual(await listNotifications(saja), []);
       await assert.rejects(markNotificationRead(saja, notices[0].id), /غير موجود/);
       assert.ok((await markNotificationRead(muna, notices[0].id)).readAt);
@@ -316,6 +351,7 @@ test('Darb postponement, failed delivery and cancellation notify only the respon
       await syncOrder(id);
       notices = await listNotifications(muna);
       assert.equal(notices.length, 3);
+      assert.equal((await listNotifications('admin')).length, 3);
       assert.equal((await ordersStore().get(`orders/${id}`)).status, 'cancelled');
     });
   } finally { globalThis.fetch = previousFetch; }
@@ -333,6 +369,7 @@ test('phone push registrations are scoped to an agent and carrier reasons are ex
     assert.equal((await ordersStore().get(pushRows.blobs[0].key)).agentId, muna);
     await removePushSubscription(muna, subscription.endpoint);
     assert.equal((await ordersStore().get(pushRows.blobs[0].key)).agentId, '');
+    assert.deepEqual(await savePushSubscription('admin', { ...subscription, endpoint: 'https://fcm.googleapis.com/fcm/send/admin' }), { enabled: true });
     await assert.rejects(savePushSubscription(muna, { ...subscription, endpoint: 'https://example.com/push' }), /غير صالحة/);
   });
   assert.equal(carrierEvent({ status: 'delayed', timeline: [{ type: 'delayed', description: 'تم التأجيل', remarks: 'الزبون غير متاح', _id: 'event-1' }] }).reason, 'الزبون غير متاح');

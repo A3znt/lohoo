@@ -1,7 +1,7 @@
 import { removeOrder, createOrder, darb, editPendingShipment, env, json, listDeliveryLocations, listOrders, listWarehouseProducts, quoteOrder, readOrder, resalaReady, retryShipment, sameOrigin, shippingComponents, syncSmsDelivery,
   saveSettings, sendStageSms, settings, syncOrder, updateOrder } from './core.mjs';
 import { agentSessionCookie, changeOwnAgentPassword, createAgent, getActor, listAgents, publicAgent, readAgent, resetAgentPassword, setAgentEnabled, updateAgentProfile } from './team.mjs';
-import { listNotifications, markNotificationRead, removePushSubscription, savePushSubscription } from './notifications.mjs';
+import { createManualNotifications, listNotifications, markNotificationRead, removePushSubscription, savePushSubscription } from './notifications.mjs';
 
 function commissionSummary(orders) {
   const earned = orders.reduce((sum, order) => sum + (order.commissionEarnedAt ? Number(order.commissionAmount || 0) : 0), 0);
@@ -36,19 +36,26 @@ export default async function handler(request) {
           commissionPaidAt: order.commissionPaidAt || '',
         }));
         return json({ ok: true, data: { actor, orders: orders.filter(o => !o.deletedAt), settings: await settings(), resalaConfigured: resalaReady(),
-          notifications: isAdmin ? [] : await listNotifications(actor.id), vapidPublicKey: isAdmin ? '' : env('VAPID_PUBLIC_KEY'),
+          notifications: await listNotifications(actor.id), vapidPublicKey: env('VAPID_PUBLIC_KEY'),
           agents: agents.map((agent) => ({ ...publicAgent(agent), ...commissionSummary(allOrders.filter((order) => order.agentId === agent.id)) })),
           commission: commissionSummary(orders), walletEntries } });
       }
       case 'markNotificationRead':
-        if (isAdmin) throw new Error('الإشعارات مخصصة للمندوبات.');
         return json({ ok: true, data: await markNotificationRead(actor.id, input.id) });
       case 'savePushSubscription':
-        if (isAdmin) throw new Error('الإشعارات مخصصة للمندوبات.');
         return json({ ok: true, data: await savePushSubscription(actor.id, input.subscription) });
       case 'removePushSubscription':
-        if (isAdmin) throw new Error('الإشعارات مخصصة للمندوبات.');
         return json({ ok: true, data: await removePushSubscription(actor.id, input.endpoint) });
+      case 'sendNotification': {
+        requireAdmin();
+        const recipient = String(input.recipient || '');
+        const agents = await listAgents();
+        const recipients = recipient === 'team' ? ['admin', ...agents.filter((agent) => agent.enabled).map((agent) => agent.id)]
+          : recipient === 'all' ? agents.filter((agent) => agent.enabled).map((agent) => agent.id)
+          : recipient === 'admin' ? ['admin'] : agents.some((agent) => agent.id === recipient && agent.enabled) ? [recipient] : [];
+        if (!recipients.length) throw new Error('اختر مستلمًا متاحًا.');
+        return json({ ok: true, data: await createManualNotifications(recipients, input.title, input.body) });
+      }
       case 'trash':
         requireAdmin();
         return json({ ok: true, data: (await listOrders()).filter(o => o.deletedAt) });

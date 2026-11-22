@@ -33,5 +33,5 @@ async function request(path, method, body) {
   return payload.result;
 }
 await request(endpoint, 'PUT', form);
-await request(`${endpoint}/schedules`, 'PUT', JSON.stringify([{ cron: '*/3 * * * *' }]));
+await request(`${endpoint}/schedules`, 'PUT', JSON.stringify([{ cron: '*/5 * * * *' }]));
 console.log(`Deployed https://${worker}.daftar-orders-a3z.workers.dev`);
