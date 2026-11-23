@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { generateKeyPairSync, scryptSync } from 'node:crypto';
 import { binding, ordersStore, withContext } from '../cloudflare/runtime.mjs';
-import { adminPasswordValid, editPendingShipment, ensureValidCollection, isAuthenticated, listWarehouseProducts, removeOrder, sameOrigin, sendStageSms, sessionCookie, syncOrder, warehouseSelection } from '../cloudflare/core.mjs';
+import { adminPasswordValid, editPendingShipment, ensureValidCollection, isAuthenticated, listWarehouseProducts, removeOrder, sameOrigin, sendStageSms, sessionCookie, syncOrder, syncSmsDelivery, warehouseSelection } from '../cloudflare/core.mjs';
 import { carrierEvent, createAdminNotification, createCarrierNotification, listNotifications, markNotificationRead, removePushSubscription, savePushSubscription } from '../cloudflare/notifications.mjs';
 import { dailyReviewedIds, maybeSendMorningDigest, reviewShipment, tripoliClock } from '../cloudflare/daily-review.mjs';
 import sync from '../cloudflare/sync.mjs';
@@ -231,6 +231,22 @@ test('ambiguous Resala response remains unknown so a retry cannot duplicate the 
         body: JSON.stringify({ action: 'retryMessage', id, stage: 'confirmation' }) }));
       assert.equal((await response.json()).ok, false);
       assert.equal(sends, 1);
+    });
+  } finally { globalThis.fetch = previousFetch; }
+});
+
+test('old accepted SMS stops receipt polling after three days and stays safe from automatic resend', async () => {
+  const previousFetch = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async () => { calls += 1; throw new Error('Unexpected Resala request'); };
+  try {
+    await withContext({ DB: fakeD1(), RESALA_API_KEY: 'fixture' }, async () => {
+      const id = '77777777-7777-4777-8777-777777777777';
+      await ordersStore().setJSON(`orders/${id}`, { id, phone: '218910001234',
+        confirmationSms: 'sent', confirmationSmsStartedAt: '2026-11-01T00:00:00Z', onWaySms: 'pending' });
+      assert.equal((await syncSmsDelivery(id)).confirmationSms, 'unknown');
+      assert.equal(calls, 0);
+      assert.equal((await syncSmsDelivery(id)).confirmationSms, 'unknown');
     });
   } finally { globalThis.fetch = previousFetch; }
 });
@@ -544,7 +560,7 @@ test('admin order alert and morning digest are idempotent and use Tripoli time',
   await withContext({ DB: fakeD1() }, async () => {
     const id = '11111111-1111-4111-8111-111111111111';
     await ordersStore().setJSON(`orders/${id}`, { id, orderNumber: '1234567', createdAt: '2026-11-23T06:00:00Z',
-      status: 'confirmed', shipmentReference: '1234567', confirmationSms: 'failed', confirmationSmsError: 'InsufficientCredit' });
+      status: 'confirmed', shipmentReference: '1234567', confirmationSms: 'failed', confirmationSmsError: 'InsufficientCredit', onWaySms: 'unknown' });
     await createAdminNotification(`new-order:${id}`, { kind: 'new_order', orderId: id,
       title: 'طلب جديد رقم 123', body: 'أُدخل بواسطة منى' });
     await createAdminNotification(`new-order:${id}`, { kind: 'new_order', orderId: id,
@@ -558,6 +574,7 @@ test('admin order alert and morning digest are idempotent and use Tripoli time',
     assert.match(notices.find((item) => item.kind === 'daily_digest').body, /1 طلب جديد.*1 شحنة/);
     assert.match(notices.find((item) => item.kind === 'daily_digest').body, /1234567/);
     assert.match(notices.find((item) => item.kind === 'daily_digest').body, /1 رسالة تحتاج شحن رصيد/);
+    assert.match(notices.find((item) => item.kind === 'daily_digest').body, /1 رسالة تحتاج التحقق/);
   });
 });
 

@@ -407,15 +407,24 @@ export async function syncSmsDelivery(id) {
   const entry = await readOrder(id);
   if (!entry || !env('RESALA_API_KEY') || !['confirmationSms', 'onWaySms'].some((field) => entry.data[field] === 'sent')) return entry?.data || null;
   const order = entry.data;
+  const change = {};
+  for (const field of ['confirmationSms', 'onWaySms']) {
+    const started = Date.parse(order[`${field}StartedAt`] || '');
+    if (order[field] === 'sent' && Number.isFinite(started) && Date.now() - started > 3 * 24 * 60 * 60_000) {
+      change[field] = 'unknown';
+    }
+  }
+  if (!['confirmationSms', 'onWaySms'].some((field) => order[field] === 'sent' && !change[field])) {
+    return Object.keys(change).length ? updateOrder(id, change) : order;
+  }
   const url = new URL(`${RESALA_BASE}/sent-view`);
   url.searchParams.set('q', order.phone.slice(-9));
   url.searchParams.set('paginate', '20');
   const response = await fetch(url, { headers: { Authorization: `Bearer ${env('RESALA_API_KEY')}` } });
-  if (!response.ok) return order;
+  if (!response.ok) return Object.keys(change).length ? updateOrder(id, change) : order;
   const payload = await response.json().catch(() => ({}));
-  const change = {};
   for (const [stage, field] of [['confirmation', 'confirmationSms'], ['onWay', 'onWaySms']]) {
-    if (order[field] !== 'sent') continue;
+    if (order[field] !== 'sent' || change[field]) continue;
     const status = resalaDeliveryStatus(payload.data, order, stage);
     if (status === 'delivered') change[field] = 'delivered';
     if (status === 'undelivered' || status === 'failed') {
