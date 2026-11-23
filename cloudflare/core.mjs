@@ -116,8 +116,7 @@ export async function updateOrder(id, change, expectedEtag) {
   throw new Error('تغيّر الطلب أثناء الحفظ. جرّب مرة ثانية.');
 }
 export async function listOrders() {
-  const { blobs } = await ordersStore().list({ prefix: 'orders/' });
-  const rows = await Promise.all(blobs.map(({ key }) => ordersStore().get(key, { type: 'json' })));
+  const rows = (await ordersStore().listValues({ prefix: 'orders/' })).map(({ value }) => value);
   return rows.filter(Boolean).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 export async function settings() {

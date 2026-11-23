@@ -26,6 +26,10 @@ export function ordersStore() {
       const rows = await db.prepare('SELECT key FROM records WHERE key >= ? AND key < ? ORDER BY key').bind(prefix, `${prefix}\uffff`).all();
       return { blobs: (rows.results || []).map(({ key }) => ({ key })) };
     },
+    async listValues({ prefix = '' } = {}) {
+      const rows = await db.prepare('SELECT key, data FROM records WHERE key >= ? AND key < ? ORDER BY key').bind(prefix, `${prefix}\uffff`).all();
+      return (rows.results || []).map(({ key, data }) => ({ key, value: JSON.parse(data) }));
+    },
     async setJSON(key, value, options = {}) {
       const data = JSON.stringify(value);
       const etag = crypto.randomUUID();

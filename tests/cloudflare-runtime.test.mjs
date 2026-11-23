@@ -253,7 +253,7 @@ function fakeD1() {
               const prefix = String(values[0]);
               return {
                 results: [...records.keys()].filter((key) => key.startsWith(prefix))
-                  .sort().map((key) => ({ key })),
+                  .sort().map((key) => sql.includes('data FROM records') ? { key, data: records.get(key).data } : { key }),
               };
             },
             async run() {
@@ -294,6 +294,8 @@ test('Cloudflare D1 stores JSON and rejects duplicate creates and stale writes',
     assert.deepEqual(await store.setJSON('orders/two', { status: 'delivered' }), { modified: true });
     await store.setJSON('agents/one', { enabled: true });
     assert.deepEqual((await store.list({ prefix: 'orders/' })).blobs, [{ key: 'orders/one' }, { key: 'orders/two' }]);
+    assert.deepEqual((await store.listValues({ prefix: 'orders/' })).map(({ value }) => value),
+      [{ status: 'on_way' }, { status: 'delivered' }]);
   });
 });
 

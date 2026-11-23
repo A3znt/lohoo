@@ -36,8 +36,7 @@ export function carrierEvent(record) {
 
 export async function listNotifications(agentId) {
   if (!recipientValid(agentId)) return [];
-  const { blobs } = await ordersStore().list({ prefix: `notifications/${agentId}/` });
-  const rows = await Promise.all(blobs.map(({ key }) => ordersStore().get(key)));
+  const rows = (await ordersStore().listValues({ prefix: `notifications/${agentId}/` })).map(({ value }) => value);
   return rows.filter(Boolean).sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 100);
 }
 
@@ -85,8 +84,8 @@ async function sendPush(agentId, notification) {
   const vars = binding('VAPID_PRIVATE_KEY');
   if (!vars || !binding('VAPID_PUBLIC_KEY')) return;
   const vapid = { subject: binding('VAPID_SUBJECT'), publicKey: binding('VAPID_PUBLIC_KEY'), privateKey: vars };
-  const { blobs } = await ordersStore().list({ prefix: 'push/' });
-  const devices = (await Promise.all(blobs.map(({ key }) => ordersStore().get(key)))).filter((item) => item?.agentId === agentId && item.subscription);
+  const devices = (await ordersStore().listValues({ prefix: 'push/' })).map(({ value }) => value)
+    .filter((item) => item?.agentId === agentId && item.subscription);
   await Promise.all(devices.map(async (device) => {
     try {
       const payload = await buildPushPayload({ data: JSON.stringify({ title: notification.title,

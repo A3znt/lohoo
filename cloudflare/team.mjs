@@ -16,8 +16,7 @@ export function publicAgent(agent) {
   return { id: agent.id, name: agent.name, username: agent.username, enabled: agent.enabled, createdAt: agent.createdAt };
 }
 export async function listAgents() {
-  const { blobs } = await ordersStore().list({ prefix: 'agents/' });
-  const agents = await Promise.all(blobs.map(({ key }) => ordersStore().get(key, { type: 'json' })));
+  const agents = (await ordersStore().listValues({ prefix: 'agents/' })).map(({ value }) => value);
   return agents.filter(Boolean).sort((a, b) => a.name.localeCompare(b.name, 'ar'));
 }
 export async function readAgent(id) {
