@@ -51,6 +51,12 @@ export async function markNotificationRead(agentId, id) {
   return result.modified ? next : (await ordersStore().get(key));
 }
 
+export async function markAllNotificationsRead(agentId) {
+  const unread = (await listNotifications(agentId)).filter((item) => !item.readAt);
+  await Promise.all(unread.map((item) => markNotificationRead(agentId, item.id)));
+  return listNotifications(agentId);
+}
+
 function validEndpoint(value) {
   if (typeof value !== 'string' || value.length > 2048) return false;
   try {
@@ -157,14 +163,14 @@ export async function createAdminNotification(key, { kind, orderId = '', title, 
 }
 
 export async function createCarrierNotification(order, event) {
-  const agentId = agentIdValid(order.agentId) ? order.agentId : agentIdValid(order.createdById) ? order.createdById : '';
   const signature = `${order.id}\n${event.kind}\n${event.reason}\n${event.eventId}`;
   const id = (await pushKey(signature)).slice(5);
   const title = event.kind === 'postponed' ? 'طلبية مؤجّلة' : event.kind === 'cancelled' ? 'طلبية ملغية' : 'تعذّر توصيل الطلبية';
   const number = order.orderNumber || order.id.slice(0, 8);
-  const body = `طلبية ${number} · ${order.customer}${event.reason ? ` — السبب: ${event.reason}` : ' — لم يذكر درب السبيل سببًا بعد.'}`;
+  const location = [order.city, order.area].filter(Boolean).join('، ');
+  const body = `طلبية ${number} · ${order.customer}${location ? ` · ${location}` : ''} · ${event.reason ? `السبب: ${event.reason}` : 'لم يذكر درب السبيل سببًا بعد.'} افتح الطلب لمراجعة التفاصيل.`;
   const createdAt = new Date().toISOString();
-  const recipients = agentId ? [agentId, 'admin'] : ['admin'];
+  const recipients = [...new Set(['admin', order.createdById, order.agentId].filter((recipient) => recipient === 'admin' || agentIdValid(recipient)))];
   const notifications = await Promise.all(recipients.map(async (recipient) => {
     const notification = { id, agentId: recipient, orderId: order.id, kind: event.kind, title, body,
       reason: event.reason, createdAt, readAt: '' };

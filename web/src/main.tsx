@@ -4,7 +4,7 @@ import { createRoot } from 'react-dom/client';
 import {
   ArrowDownLeft, ArrowLeft, ArrowUpLeft, Bell, Box, Check, CheckCheck, ChevronLeft,
   Camera, CircleAlert, ClipboardList, Clock3, CreditCard, Download, LayoutDashboard,
-  LockKeyhole, LogOut, Menu, MessageCircle, PackageCheck, Phone, Plus, RefreshCw, Search,
+  LockKeyhole, LogOut, MapPin, Menu, MessageCircle, PackageCheck, Phone, Plus, RefreshCw, Search,
   Send, Settings2, ShieldCheck, Sparkles, Truck, Users, Wallet, X,
 } from 'lucide-react';
 import '@fontsource/ibm-plex-sans-arabic/arabic-400.css';
@@ -84,6 +84,7 @@ function App() {
         setSyncError('');
         setLastSyncedAt(new Date());
       }
+      return next;
     } catch (error) {
       if (requestId === refreshRequest.current) {
         if (error instanceof ApiError && error.status === 401) {
@@ -462,7 +463,7 @@ function App() {
         }
       } catch { /* toast explains the error */ }
     }} busy={busy} actor={data.actor} agents={data.agents} resalaConfigured={data.resalaConfigured} />}
-    {notificationsOpen && <NotificationsPanel items={data.notifications} actor={data.actor} agents={data.agents} phoneSupported={phoneSupported} phoneEnabled={phoneEnabled} busy={busy} onClose={() => setNotificationsOpen(false)} onEnablePhone={() => void enablePhoneNotifications()} onDisablePhone={() => void disablePhoneNotifications()} onTestPhone={() => testPhoneNotifications()} onRead={(item) => void markRead(item)} onSend={async (recipient, title, body) => { const result = await action(() => api<{ count: number }>('sendNotification', { recipient, title, body })); setToast(`تم إرسال الإشعار إلى ${result.count} حساب.`); }} onOpen={(item) => { void markRead(item); setNotificationsOpen(false); if (item.kind === 'daily_digest') { navigate('overview'); return; } const order = data.orders.find((row) => row.id === item.orderId); if (order) setSelected(order); else setToast('هذه الطلبية لم تعد ضمن طلباتك الحالية.'); }} />}
+    {notificationsOpen && <NotificationsPanel items={data.notifications} actor={data.actor} agents={data.agents} phoneSupported={phoneSupported} phoneEnabled={phoneEnabled} busy={busy} onClose={() => setNotificationsOpen(false)} onEnablePhone={() => void enablePhoneNotifications()} onDisablePhone={() => void disablePhoneNotifications()} onTestPhone={() => testPhoneNotifications()} onRead={(item) => void markRead(item)} onMarkAll={async () => { const items = await action(() => api<NotificationRecord[]>('markAllNotificationsRead')); const changed = new Map(items.map((item) => [item.id, item])); setData((current) => ({ ...current, notifications: current.notifications.map((item) => changed.get(item.id) || item) })); }} onSend={async (recipient, title, body) => { const result = await action(() => api<{ count: number }>('sendNotification', { recipient, title, body })); setToast(`تم إرسال الإشعار إلى ${result.count} حساب.`); }} onOpen={(item) => { void markRead(item); setNotificationsOpen(false); if (item.kind === 'daily_digest') { navigate('overview'); return; } void refresh().then((latest) => { if (latest.actor.id !== data.actor.id) return; const order = latest.orders.find((row) => row.id === item.orderId); if (order) setSelected(order); else setToast('هذه الطلبية لم تعد ضمن طلباتك الحالية.'); }).catch(() => setToast('تعذر فتح الطلب. حدّث القائمة وحاول مجددًا.')); }} />}
     {toast && <div className="toast" role="status" aria-live="polite"><Bell size={18} /><span>{toast}</span><button onClick={() => setToast('')} aria-label="إغلاق"><X size={15} /></button></div>}
   </div>;
 }
@@ -490,6 +491,7 @@ function OrderList({ orders, onSelect, compact = false, showTracking = false }: 
         <strong>{order.customer}</strong>
         <span className="order-id-line"><small>طلب رقم <b dir="ltr">{orderNumber(order)}</b></small><CopyButton value={orderNumber(order)} label="رقم الطلب" compact /></span>
         <span className="row-tracking"><small>هاتف <b dir="ltr">{order.phone}</b></small><CopyButton value={order.phone} label="رقم الهاتف" compact /></span>
+        <span className="order-location"><MapPin size={14} aria-hidden="true" /> {order.city}{order.area ? `، ${order.area}` : ''}</span>
         {showTracking && order.shipmentReference && <span className="row-tracking"><small>تتبع <b dir="ltr">{order.shipmentReference}</b></small><CopyButton value={order.shipmentReference} label="رقم التتبع" compact /></span>}
         <small className="order-meta">{order.product} × {order.quantity}{order.createdByName ? ` · أدخله ${order.createdByName}` : ''}</small>
       </span></div>

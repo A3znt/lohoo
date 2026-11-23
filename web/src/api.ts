@@ -20,7 +20,7 @@ export interface CommissionSummary { assigned: number; delivered: number; earned
 export interface WalletEntry { orderId: string; orderNumber?: string; customer: string; product: string; status: OrderStatus; createdAt: string; deletedAt: string; commissionAmount: number; commissionEarnedAt: string; commissionPaidAt: string }
 export interface AgentSummary extends CommissionSummary { id: string; name: string; username: string; enabled: boolean; createdAt: string }
 export interface Settings { serviceId: string; autoMessages: boolean }
-export interface NotificationRecord { id: string; agentId: string; orderId: string; kind: 'postponed' | 'delivery_failed' | 'cancelled' | 'manual' | 'new_order' | 'daily_digest' | 'order_attention' | 'sms_alert'; title: string; body: string; reason: string; createdAt: string; readAt: string }
+export interface NotificationRecord { id: string; agentId: string; orderId: string; kind: 'postponed' | 'delivery_failed' | 'cancelled' | 'manual' | 'new_order' | 'daily_digest' | 'order_attention' | 'sms_alert' | 'order_activity' | 'carrier_status'; title: string; body: string; reason: string; createdAt: string; readAt: string }
 export interface Package { _id: string; title?: string; name?: string; price?: number; attributes?: string[] }
 export interface WarehouseVariant { id: string; sku: string; attributes: { key: string; value: string }[]; widthCM: number; heightCM: number; lengthCM: number; isFragile: boolean; allowInspection: boolean; allowTesting: boolean }
 export interface WarehouseProduct { id: string; name: string; salePrice: number; currency: string; isPublished: boolean; isReviewed: boolean; isBlocked: boolean; variants: WarehouseVariant[] }

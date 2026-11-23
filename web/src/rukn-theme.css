@@ -178,6 +178,8 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
 .order-row:focus-visible{background:#f8f0e1}
 .order-id-line b,.row-tracking b{color:#70502b}
 .order-meta,.row-tracking small{color:#867866}
+.order-location{display:inline-flex;align-items:center;gap:5px;max-width:100%;margin-top:5px;color:#70552f;font-size:11px;font-weight:700;line-height:1.5}
+.order-location svg{flex:none;color:#a7834e}
 .metric-top .copy-button{background:#f5ecdc}
 .metric-top .copy-button:hover{background:#ecddc2}
 .sort-control{color:#75634d}
@@ -208,6 +210,12 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
 .phone-push-card .btn{flex:none;padding:8px 10px;font-size:11px}
 .phone-push-icon,.notification-symbol{display:grid;place-items:center;flex:none;width:36px;height:36px;border-radius:11px;background:#ead9bc;color:#8b6737}
 .notification-list{display:grid;gap:10px}
+.notification-tools{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:0 0 12px}
+.notification-filters{display:flex;gap:6px}
+.notification-filters button{border:1px solid #e3d4bd;border-radius:99px;background:#fffdfa;color:#725f44;padding:7px 11px;font-size:11px;cursor:pointer}
+.notification-filters button.active{background:#765631;border-color:#765631;color:#fff}
+.notification-mark-all{border:0;background:transparent;color:#805c2e;font-size:11px;font-weight:700;cursor:pointer}
+.notification-group-title{margin:17px 2px 9px;color:#76664e;font-size:11px;font-weight:800}
 .notification-item{display:flex;align-items:flex-start;gap:11px;padding:15px;border:1px solid #e9dfd0;border-radius:15px;background:#fffdfa}
 .notification-item.unread{border-color:#d5b680;background:#fff9ef;box-shadow:0 6px 18px #674a2510}
 .notification-content{flex:1;min-width:0}

@@ -57,7 +57,7 @@ test('existing and new order codes follow the creator while keeping delivery and
     assert.equal(new Set(concurrent).size, 8);
   });
 });
-import { carrierEvent, createAdminNotification, createCarrierNotification, listNotifications, markNotificationRead, removePushSubscription, savePushSubscription } from '../cloudflare/notifications.mjs';
+import { carrierEvent, createAdminNotification, createCarrierNotification, listNotifications, markAllNotificationsRead, markNotificationRead, removePushSubscription, savePushSubscription } from '../cloudflare/notifications.mjs';
 import { dailyReviewedIds, maybeSendMorningDigest, reviewShipment, tripoliClock } from '../cloudflare/daily-review.mjs';
 import sync from '../cloudflare/sync.mjs';
 import ordersApi from '../cloudflare/api.mjs';
@@ -177,7 +177,7 @@ test('agent wallet includes only their ledger and preserves paid archived orders
     const rows = [
       { id: '11111111-1111-4111-8111-111111111111', agentId: muna.id, status: 'delivered', commissionAmount: 15, commissionEarnedAt: '2026-11-22', commissionPaidAt: '2026-11-23', deletedAt: '2026-11-24' },
       { id: '22222222-2222-4222-8222-222222222222', agentId: muna.id, status: 'confirmed', commissionAmount: 0, commissionEarnedAt: '', commissionPaidAt: '' },
-      { id: '33333333-3333-4333-8333-333333333333', agentId: saja.id, status: 'delivered', commissionAmount: 15, commissionEarnedAt: '2026-11-22', commissionPaidAt: '' },
+      { id: '33333333-3333-4333-8333-333333333333', agentId: saja.id, createdById: muna.id, status: 'delivered', commissionAmount: 15, commissionEarnedAt: '2026-11-22', commissionPaidAt: '' },
     ];
     for (const row of rows) await ordersStore().setJSON(`orders/${row.id}`, { ...row, createdAt: '2026-11-20', customer: 'زبون', product: 'منتج' });
     const cookie = agentSessionCookie(await loginAgent('muna', 'muna@123')).split(';')[0];
@@ -186,7 +186,7 @@ test('agent wallet includes only their ledger and preserves paid archived orders
     }));
     const result = await response.json();
     assert.equal(result.ok, true);
-    assert.equal(result.data.orders.length, 1);
+    assert.equal(result.data.orders.length, 2);
     assert.deepEqual(result.data.walletEntries.map((entry) => entry.orderId).sort(), rows.slice(0, 2).map((row) => row.id).sort());
     assert.deepEqual({ earned: result.data.commission.earned, paid: result.data.commission.paid, due: result.data.commission.due }, { earned: 15, paid: 15, due: 0 });
     assert.ok(result.data.walletEntries.every((entry) => !('phone' in entry) && !('address' in entry)));
@@ -646,7 +646,7 @@ test('missing Darb shipment cannot trigger a stale confirmation SMS retry', asyn
   } finally { globalThis.fetch = previousFetch; }
 });
 
-test('Darb postponement, failed delivery and cancellation notify only the responsible agent once', async () => {
+test('Darb postponement, failed delivery and cancellation notify admin, creator and responsible agent once', async () => {
   const id = '11111111-1111-4111-8111-111111111111';
   const muna = '22222222-2222-4222-8222-222222222222';
   const saja = '33333333-3333-4333-8333-333333333333';
@@ -657,7 +657,8 @@ test('Darb postponement, failed delivery and cancellation notify only the respon
     timeline: [{ type: status, remarks: reason, _id: `event-${status}` }] }] } });
   try {
     await withContext({ DB: fakeD1(), DARB_API_KEY: 'fixture', DARB_ACCOUNT_ID: 'fixture' }, async () => {
-      await ordersStore().setJSON(`orders/${id}`, { id, orderNumber: '123456789012', customer: 'زبون', agentId: muna,
+      await ordersStore().setJSON(`orders/${id}`, { id, orderNumber: 'SA001', customer: 'زبون', city: 'طرابلس', area: 'عين زارة',
+        createdById: saja, agentId: muna,
         shipmentReference: '1234567', shipmentId: 'aaaaaaaaaaaaaaaaaaaaaaaa', status: 'confirmed', darbStatus: 'pending',
         updatedAt: '2026-11-20T00:00:00Z' });
       await syncOrder(id);
@@ -665,12 +666,13 @@ test('Darb postponement, failed delivery and cancellation notify only the respon
       assert.equal(notices.length, 1);
       assert.equal((await listNotifications('admin')).length, 1);
       assert.match(notices[0].body, /طلب الزبون التأجيل/);
+      assert.match(notices[0].body, /طرابلس، عين زارة/);
+      assert.equal((await listNotifications(saja)).length, 1);
       assert.equal((await ordersStore().get(`orders/${id}`)).status, 'postponed');
       await syncOrder(id);
       assert.equal((await listNotifications(muna)).length, 1);
       assert.equal((await listNotifications('admin')).length, 1);
-      assert.deepEqual(await listNotifications(saja), []);
-      await assert.rejects(markNotificationRead(saja, notices[0].id), /غير موجود/);
+      assert.equal((await listNotifications(saja))[0].orderId, id);
       assert.ok((await markNotificationRead(muna, notices[0].id)).readAt);
       status = 'pending'; reason = '';
       await syncOrder(id);
@@ -686,6 +688,9 @@ test('Darb postponement, failed delivery and cancellation notify only the respon
       notices = await listNotifications(muna);
       assert.equal(notices.length, 3);
       assert.equal((await listNotifications('admin')).length, 4);
+      assert.equal((await listNotifications(saja)).length, 3);
+      assert.equal((await markAllNotificationsRead(saja)).filter((item) => !item.readAt).length, 0);
+      assert.equal((await listNotifications(muna)).filter((item) => !item.readAt).length, 2);
       assert.equal((await ordersStore().get(`orders/${id}`)).status, 'cancelled');
     });
   } finally { globalThis.fetch = previousFetch; }

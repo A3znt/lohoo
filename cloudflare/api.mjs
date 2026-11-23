@@ -1,7 +1,7 @@
 import { removeOrder, createOrder, darb, editPendingShipment, ensureValidCollection, env, json, listDeliveryLocations, listOrders, listWarehouseProducts, quoteOrder, readOrder, resalaReady, retryShipment, sameOrigin, shippingComponents, syncSmsDelivery,
   saveSettings, sendStageSms, settings, syncOrder, updateOrder } from './core.mjs';
 import { agentSessionCookie, changeOwnAgentPassword, createAgent, getActor, listAgents, publicAgent, readAgent, resetAgentPassword, setAgentEnabled, updateAgentProfile } from './team.mjs';
-import { createAdminNotification, createManualNotifications, listNotifications, markNotificationRead, removePushSubscription, savePushSubscription, testPhonePush } from './notifications.mjs';
+import { createAdminNotification, createManualNotifications, listNotifications, markAllNotificationsRead, markNotificationRead, removePushSubscription, savePushSubscription, testPhonePush } from './notifications.mjs';
 import { dailyReviewedIds, reviewShipment, tripoliClock } from './daily-review.mjs';
 import { migrateOrderCodes } from './order-codes.mjs';
 
@@ -30,16 +30,17 @@ export default async function handler(request) {
   const requireOwnOrder = async (id) => {
     const entry = await readOrder(id);
     if (!entry) throw new Error('الطلب غير موجود.');
-    if (!isAdmin && entry.data.agentId !== actor.id) throw new Error('ليس لديك صلاحية لهذا الطلب.');
+    if (!isAdmin && entry.data.agentId !== actor.id && entry.data.createdById !== actor.id) throw new Error('ليس لديك صلاحية لهذا الطلب.');
     return entry;
   };
   try {
     switch (input.action) {
       case 'bootstrap': {
         const allOrders = await listOrders();
-        const orders = isAdmin ? allOrders : allOrders.filter((order) => order.agentId === actor.id);
+        const orders = isAdmin ? allOrders : allOrders.filter((order) => order.agentId === actor.id || order.createdById === actor.id);
+        const assignedOrders = isAdmin ? allOrders : allOrders.filter((order) => order.agentId === actor.id);
         const agents = isAdmin ? await listAgents() : [];
-        const walletEntries = isAdmin ? [] : orders.filter((order) => !order.deletedAt || order.commissionEarnedAt || order.commissionPaidAt).map((order) => ({
+        const walletEntries = isAdmin ? [] : assignedOrders.filter((order) => !order.deletedAt || order.commissionEarnedAt || order.commissionPaidAt).map((order) => ({
           orderId: order.id, orderNumber: order.orderNumber, customer: order.customer, product: order.product,
           status: order.status, createdAt: order.createdAt, deletedAt: order.deletedAt || '',
           commissionAmount: Number(order.commissionAmount || 0), commissionEarnedAt: order.commissionEarnedAt || '',
@@ -48,11 +49,13 @@ export default async function handler(request) {
         return json({ ok: true, data: { actor, orders: orders.filter(o => !o.deletedAt), settings: await settings(), resalaConfigured: resalaReady(),
           notifications: await listNotifications(actor.id), vapidPublicKey: env('VAPID_PUBLIC_KEY'),
           agents: agents.map((agent) => ({ ...publicAgent(agent), ...commissionSummary(allOrders.filter((order) => order.agentId === agent.id)) })),
-          commission: commissionSummary(orders), walletEntries,
+          commission: commissionSummary(assignedOrders), walletEntries,
           dailyReviewDate: tripoliClock().date, dailyReviewedIds: isAdmin ? await dailyReviewedIds() : [] } });
       }
       case 'markNotificationRead':
         return json({ ok: true, data: await markNotificationRead(actor.id, input.id) });
+      case 'markAllNotificationsRead':
+        return json({ ok: true, data: await markAllNotificationsRead(actor.id) });
       case 'notifications':
         return json({ ok: true, data: await listNotifications(actor.id) });
       case 'testPhonePush':
