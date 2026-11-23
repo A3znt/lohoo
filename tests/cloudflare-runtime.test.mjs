@@ -223,14 +223,16 @@ test('agent wallet includes only their ledger and preserves paid archived orders
       { id: '33333333-3333-4333-8333-333333333333', agentId: saja.id, createdById: muna.id, status: 'delivered', commissionAmount: 15, commissionEarnedAt: '2026-11-22', commissionPaidAt: '' },
     ];
     for (const row of rows) await ordersStore().setJSON(`orders/${row.id}`, { ...row, createdAt: '2026-11-20', customer: 'زبون', product: 'منتج' });
+    await ordersStore().setJSON('orders/44444444-4444-4444-8444-444444444444', { id: '44444444-4444-4444-8444-444444444444', agentId: muna.id, status: 'cancelled', createdAt: '2026-11-21' });
     const cookie = agentSessionCookie(await loginAgent('muna', 'muna@123')).split(';')[0];
     const response = await ordersApi(new Request('https://rukn.example/api/orders', {
       method: 'POST', headers: { Cookie: cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'bootstrap' }),
     }));
     const result = await response.json();
     assert.equal(result.ok, true);
-    assert.equal(result.data.orders.length, 2);
-    assert.deepEqual(result.data.walletEntries.map((entry) => entry.orderId).sort(), rows.slice(0, 2).map((row) => row.id).sort());
+    assert.equal(result.data.orders.length, 3);
+    assert.equal(result.data.commission.assigned, 1);
+    assert.deepEqual(result.data.walletEntries.filter(entry => entry.status !== 'cancelled').map((entry) => entry.orderId).sort(), rows.slice(0, 2).map((row) => row.id).sort());
     assert.deepEqual({ earned: result.data.commission.earned, paid: result.data.commission.paid, due: result.data.commission.due }, { earned: 15, paid: 15, due: 0 });
     assert.ok(result.data.walletEntries.every((entry) => !('phone' in entry) && !('address' in entry)));
   });

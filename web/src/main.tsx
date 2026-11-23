@@ -230,10 +230,13 @@ function App() {
     return () => window.removeEventListener('keydown', onEscape);
   }, [authenticated, editing, trash, notificationsOpen, selected, menuOpen]);
 
-  const metrics = useMemo(() => dashboardMetrics(data.orders), [data.orders]);
+  const countedOrders = useMemo(() => data.actor.role === 'agent'
+    ? data.orders.filter(order => order.agentId === data.actor.id && order.status !== 'cancelled')
+    : data.orders, [data.orders, data.actor]);
+  const metrics = useMemo(() => dashboardMetrics(countedOrders), [countedOrders]);
   const smsCreditFailures = data.orders.filter((order) => (order.confirmationSms === 'failed' && order.confirmationSmsError === 'InsufficientCredit') || (order.onWaySms === 'failed' && order.onWaySmsError === 'InsufficientCredit')).length;
   const uncertainSmsCount = data.orders.filter((order) => order.confirmationSms === 'unknown' || order.onWaySms === 'unknown').length;
-  const weeklyActivity = useMemo(() => weeklyOrderActivity(data.orders), [data.orders]);
+  const weeklyActivity = useMemo(() => weeklyOrderActivity(countedOrders), [countedOrders]);
   const weekTotal = weeklyActivity.reduce((total, day) => total + day.count, 0);
   const weekPeak = Math.max(1, ...weeklyActivity.map((day) => day.count));
   const visible = useMemo(() => sortOrders(filterOrders(data.orders, filter, query), sort), [data.orders, filter, query, sort]);

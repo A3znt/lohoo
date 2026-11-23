@@ -43,7 +43,7 @@ test('standalone web app colors match browser theme and refresh offline cache', 
 test('holographic overview chart is calculated from order dates instead of fixture data', async () => {
   const [view, dashboard] = await Promise.all([read('web/src/main.tsx'), read('web/src/order-view.ts')]);
   assert.match(view, /className="insights-panel"/);
-  assert.match(view, /weeklyOrderActivity\(data\.orders\)/);
+  assert.match(view, /weeklyOrderActivity\(countedOrders\)/);
   assert.match(view, /day\.count/);
   assert.match(dashboard, /orders\.reduce\(\(total, order\)/);
   assert.match(dashboard, /Date\.parse\(order\.createdAt\)/);

@@ -8,7 +8,8 @@ import { migrateOrderCodes } from './order-codes.mjs';
 function commissionSummary(orders) {
   const earned = orders.reduce((sum, order) => sum + (order.commissionEarnedAt ? Number(order.commissionAmount || 0) : 0), 0);
   const paid = orders.reduce((sum, order) => sum + (order.commissionPaidAt ? Number(order.commissionAmount || 0) : 0), 0);
-  return { assigned: orders.length, delivered: orders.filter((order) => order.status === 'delivered').length,
+  const counted = orders.filter(order => !order.deletedAt && order.status !== 'cancelled');
+  return { assigned: counted.length, delivered: counted.filter((order) => order.status === 'delivered').length,
     earned, paid, due: Math.max(0, earned - paid) };
 }
 
