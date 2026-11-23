@@ -2,6 +2,7 @@ import { confirmationFields } from '../shared/confirmation.mjs';
 import { createHmac, randomUUID, scryptSync, timingSafeEqual } from 'node:crypto';
 import { binding, ordersStore as getCloudflareStore } from './runtime.mjs';
 import { carrierEvent, createAdminNotification, createCarrierNotification } from './notifications.mjs';
+import { allocateOrderCode } from './order-codes.mjs';
 
 const DARB_BASE = 'https://v2.sabil.ly';
 const RESALA_BASE = 'https://dev.resala.ly/api/v1';
@@ -269,8 +270,9 @@ export async function createOrder(input, assignedAgent = null, creator = null) {
   ensureValidCollection(clean.paid, clean.unitPrice, clean.quantity, deliveryFee);
   clean.deliveryFee = deliveryFee;
   const config = await settings();
+  const orderNumber = await allocateOrderCode(creator);
   const now = new Date().toISOString();
-  const initial = { id, orderNumber: orderNumberFromId(id), ...clean,
+  const initial = { id, orderNumber, ...clean,
     createdById: creator?.id || 'admin', createdByName: creator?.name || 'المدير',
     agentId: assignedAgent?.id || '', agentName: assignedAgent?.name || '',
     commissionAmount: 0, commissionEarnedAt: '', commissionPaidAt: '',
@@ -399,7 +401,7 @@ export async function sendStageSms(id, stage) {
   return updateOrder(id, { [field]: 'sent', [`${field}Id`]: payload.sms_template_version?.id || '' });
 }
 export function resalaDeliveryStatus(rows, order, stage) {
-  const numbers = [order.orderNumber || orderNumberFromId(order.id), order.id.slice(0, 8)];
+  const numbers = [order.orderNumber || orderNumberFromId(order.id), order.legacyOrderNumber, order.id.slice(0, 8)].filter(Boolean);
   const matching = (Array.isArray(rows) ? rows : []).find((item) => {
     const content = String(item.content || '');
     if (content.includes('تم تأكيد طلبيتك:') && content.includes('كود الطلبية الخاص بدرب السبيل:')) {

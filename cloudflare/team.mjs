@@ -1,5 +1,6 @@
 import { createHmac, randomBytes, randomUUID, scryptSync } from 'node:crypto';
 import { env, equal, isAuthenticated, ordersStore } from './core.mjs';
+import { agentCodePrefix } from './order-codes.mjs';
 
 const COOKIE = 'daftar_agent_session';
 const SESSION_SECONDS = 30 * 24 * 60 * 60;
@@ -27,7 +28,11 @@ export async function createAgent(input) {
   const name = String(input?.name || '').trim().slice(0, 80);
   const username = String(input?.username || '').trim().toLowerCase();
   if (name.length < 2 || !/^[a-z0-9._-]{3,32}$/.test(username)) throw new Error('اكتب اسم المندوبة واسم دخول إنجليزي من 3 أحرف على الأقل.');
-  if ((await listAgents()).some((agent) => agent.username === username)) throw new Error('اسم الدخول مستخدم بالفعل.');
+  const prefix = agentCodePrefix(username);
+  const agents = await listAgents();
+  if (agents.some((agent) => agent.username === username)) throw new Error('اسم الدخول مستخدم بالفعل.');
+  if (agents.some((agent) => agentCodePrefix(agent.username) === prefix)) throw new Error(`رمز الطلب ${prefix} مستخدم لمندوبة أخرى. اختر اسم دخول يبدأ بحرفين مختلفين.`);
+  if (await ordersStore().get(`order-sequence/${prefix}`)) throw new Error(`رمز الطلب ${prefix} مستخدم في طلبات سابقة. اختر اسم دخول يبدأ بحرفين مختلفين.`);
   const password = input?.password;
   validatePassword(password);
   const salt = randomBytes(16).toString('hex');
@@ -76,7 +81,12 @@ export async function updateAgentProfile(id, input) {
   const name = String(input?.name || '').trim().slice(0, 80);
   const username = String(input?.username || '').trim().toLowerCase();
   if (name.length < 2 || !/^[a-z0-9._-]{3,32}$/.test(username)) throw new Error('اكتب اسم المندوبة واسم دخول إنجليزي من 3 أحرف على الأقل.');
-  if ((await listAgents()).some((agent) => agent.id !== id && agent.username === username)) throw new Error('اسم الدخول مستخدم بالفعل.');
+  const prefix = agentCodePrefix(username);
+  const agents = await listAgents();
+  if (agents.some((agent) => agent.id !== id && agent.username === username)) throw new Error('اسم الدخول مستخدم بالفعل.');
+  if (agents.some((agent) => agent.id !== id && agentCodePrefix(agent.username) === prefix)) throw new Error(`رمز الطلب ${prefix} مستخدم لمندوبة أخرى. اختر اسم دخول يبدأ بحرفين مختلفين.`);
+  const previous = await ordersStore().get(`order-sequence/${prefix}`);
+  if (previous && previous.ownerId !== id) throw new Error(`رمز الطلب ${prefix} مستخدم في طلبات سابقة. اختر اسم دخول يبدأ بحرفين مختلفين.`);
   return publicAgent(await changeAgent(id, { name, username }));
 }
 export async function setAgentEnabled(id, enabled) {

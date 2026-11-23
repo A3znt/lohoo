@@ -3,6 +3,7 @@ import { removeOrder, createOrder, darb, editPendingShipment, ensureValidCollect
 import { agentSessionCookie, changeOwnAgentPassword, createAgent, getActor, listAgents, publicAgent, readAgent, resetAgentPassword, setAgentEnabled, updateAgentProfile } from './team.mjs';
 import { createAdminNotification, createManualNotifications, listNotifications, markNotificationRead, removePushSubscription, savePushSubscription, testPhonePush } from './notifications.mjs';
 import { dailyReviewedIds, reviewShipment, tripoliClock } from './daily-review.mjs';
+import { migrateOrderCodes } from './order-codes.mjs';
 
 function commissionSummary(orders) {
   const earned = orders.reduce((sum, order) => sum + (order.commissionEarnedAt ? Number(order.commissionAmount || 0) : 0), 0);
@@ -123,6 +124,9 @@ export default async function handler(request) {
       case 'saveSettings':
         requireAdmin();
         return json({ ok: true, data: await saveSettings(input.settings || {}) });
+      case 'migrateOrderCodes':
+        requireAdmin();
+        return json({ ok: true, data: await migrateOrderCodes(await listOrders(), await listAgents()) });
       case 'createOrder': {
         const requestedId = isAdmin ? String(input.order?.agentId || '') : actor.id;
         const agent = requestedId ? await readAgent(requestedId) : null;

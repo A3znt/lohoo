@@ -93,6 +93,6 @@ export async function api<T>(action: string, data: Record<string, unknown> = {})
 export function money(value: number): string { return `${new Intl.NumberFormat('ar-LY', { minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(value)} د.ل`; }
 export function orderTotal(order: Pick<Order, 'quantity' | 'unitPrice' | 'deliveryFee'>): number { return order.quantity * order.unitPrice + order.deliveryFee; }
 export function orderNumber(order: Pick<Order, 'id' | 'orderNumber'>): string {
-  if (order.orderNumber && /^\d{12}$/.test(order.orderNumber)) return order.orderNumber;
+  if (order.orderNumber && /^(?:[A-Z]{2}\d{3}|\d{12})$/.test(order.orderNumber)) return order.orderNumber;
   return (BigInt(`0x${order.id.replaceAll('-', '')}`) % 1000000000000n).toString().padStart(12, '0');
 }

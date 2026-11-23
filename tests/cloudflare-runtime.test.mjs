@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { generateKeyPairSync, scryptSync } from 'node:crypto';
 import { binding, ordersStore, withContext } from '../cloudflare/runtime.mjs';
 import { adminPasswordValid, editPendingShipment, ensureValidCollection, isAuthenticated, listWarehouseProducts, removeOrder, sameOrigin, sendStageSms, sessionCookie, shippingComponents, shippingFeeFromEstimate, syncOrder, syncSmsDelivery, warehouseSelection } from '../cloudflare/core.mjs';
+import { allocateOrderCode, migrateOrderCodes, planOrderCodeMigration } from '../cloudflare/order-codes.mjs';
 
 test('Darb delivery discounts reduce the quoted shipping fee without hiding the breakdown', () => {
   const estimate = { invoices: [{ currency: 'lyd', items: [
@@ -21,6 +22,40 @@ test('Darb delivery discounts reduce the quoted shipping fee without hiding the 
   assert.throws(() => shippingFeeFromEstimate({ invoices: [{ items: [
     { type: 'shipping', currency: 'lyd', amount: -1 },
   ] }] }), /سعر توصيل واضح/);
+});
+
+test('existing and new order codes follow the creator while keeping delivery and commission values', async () => {
+  await withContext({ DB: fakeD1() }, async () => {
+    const store = ordersStore();
+    const agents = [{ id: 'mona-id', username: 'mona' }, { id: 'saja-id', username: 'saja' }];
+    const rows = [
+      { id: 'a', createdAt: '2026-11-21T10:00:00Z', createdById: 'mona-id', orderNumber: '111111111111', deliveryFee: 20, commissionAmount: 15, commissionEarnedAt: '2026-11-22', commissionPaidAt: '2026-11-23' },
+      { id: 'b', createdAt: '2026-11-20T10:00:00Z', createdById: 'saja-id', orderNumber: '222222222222', deliveryFee: 30, commissionAmount: 0 },
+      { id: 'c', createdAt: '2026-11-19T10:00:00Z', createdById: 'admin', orderNumber: '333333333333', deletedAt: '2026-11-22' },
+      { id: 'd', createdAt: '2026-11-21T11:00:00Z', createdById: 'mona-id', orderNumber: '444444444444' },
+      { id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee', createdAt: '2026-11-18T10:00:00Z', createdById: 'admin', deletedAt: '2026-11-22' },
+    ];
+    for (const row of rows) await store.setJSON(`orders/${row.id}`, row);
+    assert.deepEqual(planOrderCodeMigration(rows, agents).assignments.map(({ code }) => code), ['ZN001', 'ZN002', 'SA001', 'MO001', 'MO002']);
+    const migrated = await migrateOrderCodes(rows, agents);
+    assert.deepEqual(migrated.counts, { ZN: 2, SA: 1, MO: 2 });
+    const first = await store.get('orders/a');
+    assert.deepEqual([first.orderNumber, first.legacyOrderNumber, first.deliveryFee, first.commissionAmount, first.commissionEarnedAt, first.commissionPaidAt],
+      ['MO001', '111111111111', 20, 15, '2026-11-22', '2026-11-23']);
+    assert.equal((await store.get('orders/c')).orderNumber, 'ZN002');
+    assert.match((await store.get('orders/eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee')).legacyOrderNumber, /^\d{12}$/);
+    assert.equal((await migrateOrderCodes(rows, agents)).alreadyCompleted, true);
+    const oldArchived = await store.get('orders/eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee');
+    await store.setJSON('orders/eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee', { ...oldArchived, legacyOrderNumber: '' });
+    assert.equal((await migrateOrderCodes((await store.listValues({ prefix: 'orders/' })).map(({ value }) => value), agents)).repaired, 1);
+    await assert.rejects(createAgent({ name: 'مندوبة جديدة', username: 'monica', password: 'password8' }), /مستخدم في طلبات سابقة/);
+    assert.equal(await allocateOrderCode({ role: 'agent', id: 'mona-id', username: 'mona' }), 'MO003');
+    assert.equal(await allocateOrderCode({ role: 'admin' }), 'ZN003');
+    assert.equal(await allocateOrderCode({ role: 'agent', id: 'saja-id', username: 'saja' }), 'SA002');
+    await assert.rejects(allocateOrderCode({ role: 'agent', id: 'other-id', username: 'mona' }), /مرتبط بحساب آخر/);
+    const concurrent = await Promise.all(Array.from({ length: 8 }, () => allocateOrderCode({ role: 'agent', id: 'mona-id', username: 'mona' })));
+    assert.equal(new Set(concurrent).size, 8);
+  });
 });
 import { carrierEvent, createAdminNotification, createCarrierNotification, listNotifications, markNotificationRead, removePushSubscription, savePushSubscription } from '../cloudflare/notifications.mjs';
 import { dailyReviewedIds, maybeSendMorningDigest, reviewShipment, tripoliClock } from '../cloudflare/daily-review.mjs';
@@ -237,6 +272,7 @@ test('a confirmed agent order alerts the admin once with its carrier code', asyn
   try {
     await withContext({ DB: fakeD1(), APP_TOKEN: 'fixture', DARB_API_KEY: 'fixture', DARB_ACCOUNT_ID: 'fixture' }, async () => {
       await ordersStore().setJSON('settings/default', { serviceId: 'service-1', autoMessages: false });
+      await ordersStore().setJSON('meta/order-codes-v1', { counts: {}, completedAt: '2026-11-23T00:00:00Z' });
       const agent = await createAgent({ name: 'منى', username: 'mona', password: 'Mona2026' });
       const cookie = agentSessionCookie(await loginAgent('mona', 'Mona2026')).split(';')[0];
       const order = { id: '11111111-1111-4111-8111-111111111111', customer: 'زبون', phone: '0912345678',
@@ -249,7 +285,9 @@ test('a confirmed agent order alerts the admin once with its carrier code', asyn
           body: JSON.stringify({ action: 'createOrder', order }) }));
         return response.json();
       };
-      assert.equal((await create()).data.status, 'confirmed');
+      const first = await create();
+      assert.equal(first.data.status, 'confirmed');
+      assert.equal(first.data.orderNumber, 'MO001');
       assert.equal((await create()).ok, true);
       const alerts = await listNotifications('admin');
       assert.equal(alerts.length, 1);
