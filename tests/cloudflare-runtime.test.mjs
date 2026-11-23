@@ -202,12 +202,14 @@ test('an agent can retry only their failed SMS, and a successful send cannot be 
       const blocked = await call({ username: muna.username, password: 'muna@123' });
       assert.equal(blocked.data.confirmationSms, 'failed');
       assert.equal(blocked.data.confirmationSmsError, 'InsufficientCredit');
+      assert.equal((await listNotifications('admin')).filter((item) => item.kind === 'sms_alert').length, 1);
       balanceAvailable = true;
       const sent = await call({ username: muna.username, password: 'muna@123' });
       assert.equal(sent.data.confirmationSms, 'sent');
       assert.equal(sent.data.confirmationSmsError, '');
       assert.equal((await call({ username: muna.username, password: 'muna@123' })).ok, false);
       assert.equal(sends, 2);
+      assert.equal((await listNotifications('admin')).filter((item) => item.kind === 'sms_alert').length, 1);
     });
   } finally { globalThis.fetch = originalFetch; }
 });
@@ -223,6 +225,7 @@ test('ambiguous Resala response remains unknown so a retry cannot duplicate the 
       await ordersStore().setJSON(`orders/${id}`, { id, status: 'confirmed', shipmentReference: '2384360',
         phone: '218910001234', orderNumber: '123456789012', confirmationSms: 'pending' });
       assert.equal((await sendStageSms(id, 'confirmation')).confirmationSms, 'unknown');
+      assert.equal((await listNotifications('admin')).filter((item) => item.kind === 'sms_alert').length, 1);
       const response = await ordersApi(new Request('https://rukn.example/api/orders', { method: 'POST',
         headers: { Authorization: 'Bearer fixture', 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'retryMessage', id, stage: 'confirmation' }) }));
@@ -539,7 +542,7 @@ test('admin order alert and morning digest are idempotent and use Tripoli time',
   await withContext({ DB: fakeD1() }, async () => {
     const id = '11111111-1111-4111-8111-111111111111';
     await ordersStore().setJSON(`orders/${id}`, { id, orderNumber: '1234567', createdAt: '2026-11-23T06:00:00Z',
-      status: 'confirmed', shipmentReference: '1234567' });
+      status: 'confirmed', shipmentReference: '1234567', confirmationSms: 'failed', confirmationSmsError: 'InsufficientCredit' });
     await createAdminNotification(`new-order:${id}`, { kind: 'new_order', orderId: id,
       title: 'طلب جديد رقم 123', body: 'أُدخل بواسطة منى' });
     await createAdminNotification(`new-order:${id}`, { kind: 'new_order', orderId: id,
@@ -552,6 +555,7 @@ test('admin order alert and morning digest are idempotent and use Tripoli time',
     assert.equal(notices.length, 2);
     assert.match(notices.find((item) => item.kind === 'daily_digest').body, /1 طلب جديد.*1 شحنة/);
     assert.match(notices.find((item) => item.kind === 'daily_digest').body, /1234567/);
+    assert.match(notices.find((item) => item.kind === 'daily_digest').body, /1 رسالة تحتاج شحن رصيد/);
   });
 });
 

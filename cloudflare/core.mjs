@@ -1,7 +1,7 @@
 import { confirmationFields } from '../shared/confirmation.mjs';
 import { createHmac, randomUUID, scryptSync, timingSafeEqual } from 'node:crypto';
 import { binding, ordersStore as getCloudflareStore } from './runtime.mjs';
-import { carrierEvent, createCarrierNotification } from './notifications.mjs';
+import { carrierEvent, createAdminNotification, createCarrierNotification } from './notifications.mjs';
 
 const DARB_BASE = 'https://v2.sabil.ly';
 const RESALA_BASE = 'https://dev.resala.ly/api/v1';
@@ -358,21 +358,37 @@ export async function sendStageSms(id, stage) {
   catch (error) { return updateOrder(id, { [field]: 'failed', [`${field}Error`]: error.message }); }
   const marked = await ordersStore().setJSON(orderKey(id), { ...order, [field]: 'sending', [`${field}StartedAt`]: new Date().toISOString(), updatedAt: new Date().toISOString() }, { onlyIfMatch: entry.etag });
   if (!marked.modified) return (await readOrder(id))?.data;
+  const uncertain = async () => {
+    const saved = await updateOrder(id, { [field]: 'unknown' });
+    try {
+      await createAdminNotification(`sms-unknown:${id}:${field}`, { kind: 'sms_alert', orderId: id,
+        title: 'حالة الرسالة غير مؤكدة',
+        body: `تحقق من سجل رِسالة للطلب ${order.orderNumber || orderNumberFromId(id)} قبل إعادة ${stage === 'confirmation' ? 'التأكيد' : 'رسالة الطريق'}؛ قد تكون وصلت.` });
+    } catch (error) { console.error('SMS uncertainty notification failed', id, error instanceof Error ? error.message : error); }
+    return saved;
+  };
   let response;
   try {
     response = await fetch(`${RESALA_BASE}/messages/send-template?sms_template_id=${encodeURIComponent(templateId)}`, {
       method: 'POST', headers: { Authorization: `Bearer ${env('RESALA_API_KEY')}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ records: [record] }),
     });
-  } catch {
-    return updateOrder(id, { [field]: 'unknown' });
-  }
+  } catch { return uncertain(); }
   const payload = await response.json().catch(() => null);
-  if (response.status >= 500 || (response.ok && !payload)) return updateOrder(id, { [field]: 'unknown' });
+  if (response.status >= 500 || (response.ok && !payload)) return uncertain();
   if (!response.ok || payload?.failed > 0 || payload?.invalid_numbers?.length || payload?.failed_numbers?.length) {
-    return updateOrder(id, { [field]: 'failed', [`${field}Error`]: payload?.type || `HTTP ${response.status}` });
+    const errorType = payload?.type || `HTTP ${response.status}`;
+    const failed = await updateOrder(id, { [field]: 'failed', [`${field}Error`]: errorType });
+    if (errorType === 'InsufficientCredit') {
+      try {
+        await createAdminNotification(`sms-credit:${id}:${field}`, { kind: 'sms_alert', orderId: id,
+          title: 'رصيد رِسالة غير كافٍ',
+          body: `تعذّر إرسال ${stage === 'confirmation' ? 'تأكيد' : 'تحديث'} الطلب ${order.orderNumber || orderNumberFromId(id)}. اشحن الرصيد ثم أعد الإرسال من تفاصيل الطلب.` });
+      } catch (error) { console.error('SMS credit notification failed', id, error instanceof Error ? error.message : error); }
+    }
+    return failed;
   }
-  if (payload?.succeeded !== 1 || payload?.failed !== 0) return updateOrder(id, { [field]: 'unknown' });
+  if (payload?.succeeded !== 1 || payload?.failed !== 0) return uncertain();
   return updateOrder(id, { [field]: 'sent', [`${field}Id`]: payload.sms_template_version?.id || '' });
 }
 export function resalaDeliveryStatus(rows, order, stage) {
