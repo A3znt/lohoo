@@ -5,13 +5,16 @@ import { api, money, orderTotal, type Actor, type AgentSummary, type OrderInput,
 interface Location { city: string; areas: string[] }
 interface Quote { serviceId: string; deliveryFee: number; components: { label: string; amount: number }[] }
 interface Props { initial?: OrderInput; carrierEdit?: boolean; onClose: () => void; onCreate: (order: OrderInput) => void; busy: boolean; defaultServiceId: string; agents: AgentSummary[]; actor: Actor }
+type Catalog = { locations: Location[]; packages: Package[]; products: WarehouseProduct[] };
+let catalogCache: { value: Catalog; expiresAt: number } | null = null;
+const cachedCatalog = () => catalogCache && catalogCache.expiresAt > Date.now() ? catalogCache.value : null;
 
 export default function OrderForm({ initial, carrierEdit = false, onClose, onCreate, busy, defaultServiceId, agents, actor }: Props) {
   const [form, setForm] = useState<OrderInput>(initial ?? { id: crypto.randomUUID(), source: 'facebook', customer: '', phone: '', city: '', area: '', address: '', product: '', warehouseProductId: '', warehouseVariantId: '', quantity: 1, unitPrice: 0, deliveryFee: 0, paid: 0, notes: '', serviceId: defaultServiceId });
-  const [locations, setLocations] = useState<Location[]>([]);
-  const [packages, setPackages] = useState<Package[]>([]);
-  const [products, setProducts] = useState<WarehouseProduct[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [locations, setLocations] = useState<Location[]>(() => cachedCatalog()?.locations || []);
+  const [packages, setPackages] = useState<Package[]>(() => cachedCatalog()?.packages || []);
+  const [products, setProducts] = useState<WarehouseProduct[]>(() => cachedCatalog()?.products || []);
+  const [loading, setLoading] = useState(() => !cachedCatalog());
   const [loadError, setLoadError] = useState('');
   const [quote, setQuote] = useState<{ input: string; value: Quote } | null>(null);
   const [quoteError, setQuoteError] = useState('');
@@ -27,12 +30,15 @@ export default function OrderForm({ initial, carrierEdit = false, onClose, onCre
   const selectedVariant = selectedProduct?.variants.find((item) => item.id === form.warehouseVariantId);
   const pendingProducts = products.filter((item) => !item.isPublished && !item.isBlocked);
 
-  async function loadDarb() {
+  async function loadDarb(force = false) {
+    const cached = !force && cachedCatalog();
+    if (cached) { setLocations(cached.locations); setPackages(cached.packages); setProducts(cached.products); setLoading(false); return; }
     setLoading(true); setLoadError('');
     try {
       const [nextLocations, nextPackages, nextProducts] = await Promise.all([
         api<Location[]>('deliveryLocations'), api<Package[]>('packages'), api<WarehouseProduct[]>('warehouseProducts'),
       ]);
+      catalogCache = { value: { locations: nextLocations, packages: nextPackages, products: nextProducts }, expiresAt: Date.now() + 5 * 60_000 };
       setLocations(nextLocations); setPackages(nextPackages); setProducts(nextProducts);
     } catch (error) { setLoadError(error instanceof Error ? error.message : 'تعذر جلب بيانات درب السبيل.'); }
     finally { setLoading(false); }
@@ -79,11 +85,12 @@ export default function OrderForm({ initial, carrierEdit = false, onClose, onCre
       product: selectedProduct && variant ? `${selectedProduct.name} - ${variant.sku}` : '' }));
   }
   const total = orderTotal({ ...form, deliveryFee: currentQuote?.deliveryFee || 0 });
+  const collectionValid = !currentQuote || form.paid <= total + 0.001;
   return <div className="drawer-layer"><button className="drawer-scrim" aria-label="إغلاق" onClick={onClose} /><section className="drawer form-drawer" role="dialog" aria-modal="true" aria-label={initial ? 'تعديل الطلب' : 'إنشاء طلب جديد'}>
     <div className="drawer-head"><div><span className="overline">{initial ? 'تعديل طلب · درب السبيل' : 'طلب جديد · درب السبيل'}</span><h2>{initial ? 'تعديل الطلب' : 'إنشاء شحنة'}</h2></div><button ref={closeButtonRef} className="icon-button" onClick={onClose} aria-label="إغلاق"><X size={21} /></button></div>
     <div className="drawer-body order-form-new">
       {carrierEdit && <div className="carrier-edit-note" role="note"><Truck size={18} /><span>سيُحدَّث هذا الطلب في درب السبيل أولًا، ثم في ركن. التعديل متاح ما دامت الشحنة معلّقة لدى الشركة.</span></div>}
-      {loadError && <div className="form-error"><CircleAlert size={18} />{loadError}<button className="btn ghost" onClick={loadDarb}>إعادة المحاولة</button></div>}
+      {loadError && <div className="form-error"><CircleAlert size={18} />{loadError}<button className="btn ghost" onClick={() => void loadDarb(true)}>إعادة المحاولة</button></div>}
       {loading && <div className="form-loading"><RefreshCw size={18} className="spin" /> نجلب المنتجات والأماكن والخدمات من درب السبيل…</div>}
       <div className="form-section-title"><span>01</span><div><strong>الزبون والمصدر</strong><small>بيانات الطلب من محادثتك</small></div></div>
       <div className="source-picker"><button type="button" aria-pressed={form.source === 'facebook'} className={form.source === 'facebook' ? 'selected' : ''} onClick={() => set('source', 'facebook')}>فيسبوك</button><button type="button" aria-pressed={form.source === 'instagram'} className={form.source === 'instagram' ? 'selected' : ''} onClick={() => set('source', 'instagram')}>إنستغرام</button></div>
@@ -94,18 +101,19 @@ export default function OrderForm({ initial, carrierEdit = false, onClose, onCre
       <label className="field">العنوان التفصيلي<input value={form.address} onChange={(e) => set('address', e.target.value)} placeholder="الشارع وأقرب نقطة دلالة" /></label>
       <div className="form-section-title"><span>03</span><div><strong>المنتج وخدمة التوصيل</strong><small>الاسم والقياس من مخزون درب السبيل</small></div></div>
       <label className="field">المنتج<select value={form.warehouseProductId} disabled={loading} onChange={(e) => chooseProduct(e.target.value)}><option value="">اختر المنتج</option>{products.map((item) => <option key={item.id} value={item.id} disabled={!item.isPublished || item.isBlocked}>{item.name} · {money(item.salePrice)}{item.isBlocked ? ' · موقوف من درب السبيل' : !item.isPublished ? ' · بانتظار اعتماد درب السبيل' : ''}</option>)}</select></label>
-      <div className="catalog-toolbar"><span>{products.filter((item) => item.isPublished && !item.isBlocked).length} منتج متاح من درب السبيل</span><button type="button" className="btn ghost" disabled={loading || busy} onClick={() => void loadDarb()}><RefreshCw size={15} className={loading ? 'spin' : ''} /> تحديث المنتجات</button></div>
+      <div className="catalog-toolbar"><span>{products.filter((item) => item.isPublished && !item.isBlocked).length} منتج متاح من درب السبيل</span><button type="button" className="btn ghost" disabled={loading || busy} onClick={() => void loadDarb(true)}><RefreshCw size={15} className={loading ? 'spin' : ''} /> تحديث المنتجات</button></div>
       {pendingProducts.length > 0 && <p className="warehouse-pending-note" role="note">بانتظار اعتماد درب السبيل: {pendingProducts.map((item) => item.name).join('، ')}. تظهر هذه المنتجات للمتابعة، وتصبح قابلة للاختيار بعد نشرها من الشركة.</p>}
       {selectedProduct && form.unitPrice !== selectedProduct.salePrice && <div className="catalog-price-note" role="note"><span>سعر {selectedProduct.name} في مخزون درب السبيل الآن {money(selectedProduct.salePrice)}؛ سعر الطلب الحالي {money(form.unitPrice)}.</span><button type="button" className="btn ghost" onClick={() => set('unitPrice', selectedProduct.salePrice)}>استخدم سعر المخزون</button></div>}
       {selectedProduct && <label className="field">الصنف أو القياس<select value={form.warehouseVariantId} onChange={(e) => chooseVariant(e.target.value)}>{selectedProduct.variants.map((variant) => <option key={variant.id} value={variant.id}>{variant.sku}{variant.attributes.length ? ` · ${variant.attributes.map((part) => part.value).join(' / ')}` : ''}</option>)}</select></label>}
       {selectedVariant && <div className="warehouse-summary"><span><Box size={15} /> SKU: {selectedVariant.sku}</span><span>القياس: {selectedVariant.widthCM} × {selectedVariant.heightCM} × {selectedVariant.lengthCM} سم</span></div>}
       <label className="field">خدمة التوصيل<select value={form.serviceId || ''} disabled={loading} onChange={(e) => set('serviceId', e.target.value)}><option value="">اختر الخدمة</option>{packages.filter((item) => !item.attributes?.includes('deposit')).map((item) => <option key={item._id} value={item._id}>{item.title || item.name || item._id}</option>)}</select></label>
       <div className="field-grid"><label className="field">الكمية<input type="number" min="1" step="1" value={form.quantity} onChange={(e) => set('quantity', Number(e.target.value || 0))} /></label><label className="field">سعر القطعة<input type="number" min="0" step="0.01" value={form.unitPrice} onChange={(e) => set('unitPrice', Number(e.target.value || 0))} /></label></div>
-      <div className="field-grid"><label className="field">المحصّل من الزبون<input type="number" min="0" step="0.01" value={form.paid} onChange={(e) => set('paid', Number(e.target.value || 0))} /></label><label className="field">ملاحظات<input value={form.notes} onChange={(e) => set('notes', e.target.value)} placeholder="اختياري" /></label></div>
+      <div className="field-grid"><label className="field">المحصّل من الزبون<input type="number" min="0" max={currentQuote ? total : 10000000} step="0.01" value={form.paid} aria-invalid={!collectionValid} onChange={(e) => set('paid', Number(e.target.value || 0))} /></label><label className="field">ملاحظات<input value={form.notes} onChange={(e) => set('notes', e.target.value)} placeholder="اختياري" /></label></div>
       {(!quantityValid || !amountValid) && <p className="field-hint-error" role="alert">تحقّق من الكمية والمبالغ: الكمية عدد صحيح موجب، والمبالغ لا تقل عن صفر.</p>}
+      {!collectionValid && <p className="field-hint-error" role="alert">المبلغ المحصّل أكبر من إجمالي الطلب مع التوصيل.</p>}
       <div className={`quote-card ${currentQuote ? 'ready' : ''}`}><div><Truck size={19} /><span>سعر التوصيل من درب السبيل</span></div><strong>{currentQuote ? money(currentQuote.deliveryFee) : quoting ? 'جاري الحساب…' : 'أكمل البيانات'}</strong>{currentQuote?.components.map((item, index) => <div className="quote-part" key={index}><span>{item.label}</span><b>{money(item.amount)}</b></div>)}{currentQuote && <small><Check size={14} /> تم حساب السعر حسب المنتج والعنوان والخدمة</small>}{quoteError && <><p className="form-error"><CircleAlert size={16} />{quoteError}</p><button className="btn ghost" onClick={() => setQuoteAttempt((n) => n + 1)}><RefreshCw size={16} /> إعادة حساب السعر</button></>}</div>
       <div className="order-total-preview"><span>إجمالي الطلب مع التوصيل</span><strong>{currentQuote ? money(total) : '—'}</strong></div>
     </div>
-    <div className="drawer-footer"><button className="btn ghost" onClick={onClose}>إلغاء</button><button className="btn primary" disabled={busy || !currentQuote || quoting} onClick={() => initial ? currentQuote && onCreate({ ...form, deliveryFee: currentQuote.deliveryFee }) : setConfirm(true)}>{carrierEdit ? 'تحديث درب السبيل وركن' : initial ? 'حفظ التعديل' : 'مراجعة وإنشاء الشحنة'} <ArrowLeft size={17} /></button></div>
+    <div className="drawer-footer"><button className="btn ghost" onClick={onClose}>إلغاء</button><button className="btn primary" disabled={busy || !currentQuote || quoting || !collectionValid} onClick={() => initial ? currentQuote && onCreate({ ...form, deliveryFee: currentQuote.deliveryFee }) : setConfirm(true)}>{carrierEdit ? 'تحديث درب السبيل وركن' : initial ? 'حفظ التعديل' : 'مراجعة وإنشاء الشحنة'} <ArrowLeft size={17} /></button></div>
   </section>{confirm && currentQuote && <div className="confirm-layer"><div className="confirm-card" role="dialog" aria-modal="true" aria-label="تأكيد إنشاء الشحنة"><span className="confirm-icon"><Truck size={25} /></span><h3>تأكيد الشحنة</h3><p>سيُرسل طلب <strong>{form.customer}</strong> إلى درب السبيل، ثم رسالة التأكيد للزبون.</p><div className="confirm-details"><span>{form.city}، {form.area}</span><strong>{money(currentQuote?.deliveryFee || 0)} توصيل</strong></div><div className="confirm-details"><span>إجمالي الطلب</span><strong>{money(total)}</strong></div><div className="confirm-actions"><button className="btn ghost" onClick={() => setConfirm(false)}>مراجعة</button><button className="btn primary" disabled={busy} onClick={() => { setConfirm(false); onCreate({ ...form, deliveryFee: currentQuote?.deliveryFee || 0 }); }}>{busy ? 'جاري الإرسال…' : 'تأكيد وإرسال'}</button></div></div></div>}</div>;
 }

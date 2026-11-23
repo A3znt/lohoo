@@ -98,6 +98,17 @@ async function sendPush(agentId, notification) {
   }));
 }
 
+async function dispatchPush(agentId, notification) {
+  const execution = binding('__EXECUTION_CONTEXT');
+  if (execution?.waitUntil) {
+    execution.waitUntil(sendPush(agentId, notification).catch((error) => {
+      console.error(JSON.stringify({ event: 'push_dispatch_failed', type: error?.name || 'Error' }));
+    }));
+    return;
+  }
+  await sendPush(agentId, notification);
+}
+
 export async function createManualNotifications(recipientIds, title, body) {
   const cleanTitle = String(title || '').trim();
   const cleanBody = String(body || '').trim();
@@ -114,7 +125,7 @@ export async function createManualNotifications(recipientIds, title, body) {
     const notification = { id, agentId, orderId: '', kind: 'manual', title: cleanTitle, body: cleanBody,
       reason: '', createdAt, readAt: '' };
     await ordersStore().setJSON(notificationKey(agentId, id), notification, { onlyIfNew: true });
-    await sendPush(agentId, notification);
+    await dispatchPush(agentId, notification);
   }));
   return { count: recipients.length };
 }
@@ -124,7 +135,7 @@ export async function createAdminNotification(key, { kind, orderId = '', title, 
   const notification = { id, agentId: 'admin', orderId, kind, title, body, reason: '',
     createdAt: new Date().toISOString(), readAt: '' };
   const result = await ordersStore().setJSON(notificationKey('admin', id), notification, { onlyIfNew: true });
-  if (result.modified) await sendPush('admin', notification);
+  if (result.modified) await dispatchPush('admin', notification);
   return notification;
 }
 
@@ -141,7 +152,7 @@ export async function createCarrierNotification(order, event) {
     const notification = { id, agentId: recipient, orderId: order.id, kind: event.kind, title, body,
       reason: event.reason, createdAt, readAt: '' };
     const result = await ordersStore().setJSON(notificationKey(recipient, id), notification, { onlyIfNew: true });
-    if (result.modified) await sendPush(recipient, notification);
+    if (result.modified) await dispatchPush(recipient, notification);
     return notification;
   }));
   return notifications[0];

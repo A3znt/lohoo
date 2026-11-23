@@ -2,9 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { generateKeyPairSync, scryptSync } from 'node:crypto';
 import { binding, ordersStore, withContext } from '../cloudflare/runtime.mjs';
-import { adminPasswordValid, editPendingShipment, isAuthenticated, listWarehouseProducts, removeOrder, sameOrigin, sessionCookie, syncOrder, warehouseSelection } from '../cloudflare/core.mjs';
+import { adminPasswordValid, editPendingShipment, ensureValidCollection, isAuthenticated, listWarehouseProducts, removeOrder, sameOrigin, sendStageSms, sessionCookie, syncOrder, warehouseSelection } from '../cloudflare/core.mjs';
 import { carrierEvent, createAdminNotification, createCarrierNotification, listNotifications, markNotificationRead, removePushSubscription, savePushSubscription } from '../cloudflare/notifications.mjs';
 import { dailyReviewedIds, maybeSendMorningDigest, reviewShipment, tripoliClock } from '../cloudflare/daily-review.mjs';
+import sync from '../cloudflare/sync.mjs';
 import ordersApi from '../cloudflare/api.mjs';
 import { agentSessionCookie, createAgent, loginAgent } from '../cloudflare/team.mjs';
 
@@ -61,6 +62,51 @@ test('admin manages agent credentials and pays only delivered unpaid commissions
     assert.equal((await ordersStore().get(`orders/${pending}`)).commissionPaidAt, '');
     assert.equal((await call('payAgentCommissions', { agentId: id })).ok, false);
   });
+});
+
+test('earned commissions cannot be moved and collection cannot exceed order total', async () => {
+  assert.throws(() => ensureValidCollection(401, 350, 1, 50), /أكبر من إجمالي/);
+  assert.doesNotThrow(() => ensureValidCollection(400, 350, 1, 50));
+  await withContext({ DB: fakeD1(), APP_TOKEN: 'test-admin-token' }, async () => {
+    const first = await createAgent({ name: 'منى', username: 'muna', password: 'muna@123' });
+    const second = await createAgent({ name: 'سجى', username: 'saja', password: 'saja@123' });
+    const id = '11111111-1111-4111-8111-111111111111';
+    await ordersStore().setJSON(`orders/${id}`, { id, createdAt: '2026-11-23', updatedAt: '2026-11-23',
+      customer: 'زبون', agentId: first.id, agentName: first.name, status: 'delivered',
+      commissionEarnedAt: '2026-11-23', commissionAmount: 15, commissionPaidAt: '',
+      unitPrice: 350, quantity: 1, deliveryFee: 50, paid: 0 });
+    const call = async (action, input) => (await ordersApi(new Request('https://rukn.example/api/orders', {
+      method: 'POST', headers: { Authorization: 'Bearer test-admin-token', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action, ...input }),
+    }))).json();
+    assert.equal((await call('assignAgent', { id, agentId: second.id })).ok, false);
+    assert.equal((await call('updateOrder', { id, paid: 401 })).ok, false);
+    assert.equal((await call('updateOrder', { id, paid: 400 })).ok, true);
+    assert.equal((await ordersStore().get(`orders/${id}`)).agentId, first.id);
+  });
+});
+
+test('background sync skips archived orders and flags stalled shipment creation without retrying', async () => {
+  const previousFetch = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async () => { calls += 1; throw new Error('Unexpected carrier request'); };
+  try {
+    await withContext({ DB: fakeD1(), APP_TOKEN: 'fixture', DARB_API_KEY: 'fixture', DARB_ACCOUNT_ID: 'fixture' }, async () => {
+      const archived = '11111111-1111-4111-8111-111111111111';
+      const stalled = '22222222-2222-4222-8222-222222222222';
+      await ordersStore().setJSON(`orders/${archived}`, { id: archived, createdAt: '2026-11-22T00:00:00Z',
+        status: 'confirmed', shipmentReference: '1234567', deletedAt: '2026-11-22T12:00:00Z' });
+      await ordersStore().setJSON(`orders/${stalled}`, { id: stalled, orderNumber: '223344556677',
+        createdAt: '2026-11-22T00:00:00Z', status: 'creating', shipmentReference: '' });
+      await sync();
+      assert.equal(calls, 0);
+      assert.equal((await ordersStore().get(`orders/${stalled}`)).status, 'attention');
+      assert.equal((await ordersStore().get(`orders/${archived}`)).status, 'confirmed');
+      assert.equal((await listNotifications('admin')).filter((item) => item.kind === 'order_attention').length, 1);
+      await sync();
+      assert.equal((await listNotifications('admin')).filter((item) => item.kind === 'order_attention').length, 1);
+    });
+  } finally { globalThis.fetch = previousFetch; }
 });
 
 test('agent wallet includes only their ledger and preserves paid archived orders', async () => {
@@ -166,6 +212,26 @@ test('an agent can retry only their failed SMS, and a successful send cannot be 
   } finally { globalThis.fetch = originalFetch; }
 });
 
+test('ambiguous Resala response remains unknown so a retry cannot duplicate the SMS', async () => {
+  const previousFetch = globalThis.fetch;
+  let sends = 0;
+  globalThis.fetch = async () => { sends += 1; return new Response('temporary server error', { status: 502 }); };
+  try {
+    await withContext({ DB: fakeD1(), APP_TOKEN: 'fixture', RESALA_API_KEY: 'fixture',
+      RESALA_CONFIRM_TEMPLATE_ID: 'approved-template' }, async () => {
+      const id = '77777777-7777-4777-8777-777777777777';
+      await ordersStore().setJSON(`orders/${id}`, { id, status: 'confirmed', shipmentReference: '2384360',
+        phone: '218910001234', orderNumber: '123456789012', confirmationSms: 'pending' });
+      assert.equal((await sendStageSms(id, 'confirmation')).confirmationSms, 'unknown');
+      const response = await ordersApi(new Request('https://rukn.example/api/orders', { method: 'POST',
+        headers: { Authorization: 'Bearer fixture', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'retryMessage', id, stage: 'confirmation' }) }));
+      assert.equal((await response.json()).ok, false);
+      assert.equal(sends, 1);
+    });
+  } finally { globalThis.fetch = previousFetch; }
+});
+
 function fakeD1() {
   const records = new Map();
   return {
@@ -267,6 +333,25 @@ test('Darb product pagination requests a fixed limit and removes repeated produc
       assert.equal(products.length, 11);
       assert.equal(new Set(products.map((row) => row.id)).size, 11);
       assert.deepEqual(requested, ['?offset=0&limit=10', '?offset=10&limit=10']);
+    });
+  } finally { globalThis.fetch = previousFetch; }
+});
+
+test('warehouse pagination continues past one repeated full page', async () => {
+  const previousFetch = globalThis.fetch;
+  const offsets = [];
+  const product = (number) => ({ _id: String(number).padStart(24, '0'), productName: `منتج ${number}`,
+    salePrice: 350, isPublished: true, variants: [] });
+  globalThis.fetch = async (url) => {
+    const offset = Number(new URL(url).searchParams.get('offset'));
+    offsets.push(offset);
+    const rows = offset === 0 || offset === 10 ? Array.from({ length: 10 }, (_, index) => product(index)) : [product(10)];
+    return Response.json({ status: true, data: { results: rows } });
+  };
+  try {
+    await withContext({ DARB_API_KEY: 'fixture', DARB_ACCOUNT_ID: 'fixture' }, async () => {
+      assert.equal((await listWarehouseProducts()).length, 11);
+      assert.deepEqual(offsets, [0, 10, 20]);
     });
   } finally { globalThis.fetch = previousFetch; }
 });
@@ -467,6 +552,16 @@ test('admin order alert and morning digest are idempotent and use Tripoli time',
     assert.equal(notices.length, 2);
     assert.match(notices.find((item) => item.kind === 'daily_digest').body, /1 طلب جديد.*1 شحنة/);
     assert.match(notices.find((item) => item.kind === 'daily_digest').body, /1234567/);
+  });
+});
+
+test('web push is handed to the Worker execution context after storing the alert', async () => {
+  const pending = [];
+  await withContext({ DB: fakeD1(), __EXECUTION_CONTEXT: { waitUntil: (promise) => pending.push(promise) } }, async () => {
+    await createAdminNotification('new-order:test', { kind: 'new_order', orderId: 'test', title: 'طلب جديد', body: 'مراجعة' });
+    assert.equal(pending.length, 1);
+    assert.equal((await listNotifications('admin')).length, 1);
+    await Promise.all(pending);
   });
 });
 

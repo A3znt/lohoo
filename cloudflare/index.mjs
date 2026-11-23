@@ -21,8 +21,8 @@ function staticResponse(request) {
 }
 
 export default {
-  async fetch(request, env) {
-    return withContext(env, async () => {
+  async fetch(request, env, ctx) {
+    return withContext({ ...env, __EXECUTION_CONTEXT: ctx }, async () => {
       const path = new URL(request.url).pathname;
       let response;
       try {
@@ -41,6 +41,6 @@ export default {
     });
   },
   async scheduled(_event, env, ctx) {
-    ctx.waitUntil(withContext(env, () => sync()));
+    ctx.waitUntil(withContext({ ...env, __EXECUTION_CONTEXT: ctx }, () => sync()));
   },
 };

@@ -99,10 +99,9 @@ export async function updateOrder(id, change, expectedEtag) {
     const entry = await readOrder(id);
     if (!entry) throw new Error('الطلب غير موجود.');
     if (expectedEtag && entry.etag !== expectedEtag) throw new Error("تغير الطلب. افتح تفاصيله مجددًا.");
-    if (change.agentId !== undefined && entry.data.commissionPaidAt && change.agentId !== entry.data.agentId) {
-      throw new Error('لا يمكن نقل طلب صُرفت عمولته إلى مندوبة أخرى.');
+    if (change.agentId !== undefined && entry.data.commissionEarnedAt && change.agentId !== entry.data.agentId) {
+      throw new Error('لا يمكن نقل الطلب بعد استحقاق العمولة.');
     }
-    if (change.agentId === '' && entry.data.commissionEarnedAt) throw new Error('لا يمكن إزالة المندوبة بعد استحقاق العمولة.');
     if (change.commissionPaidAt && entry.data.commissionPaidAt) throw new Error('هذه العمولة مسجلة كمدفوعة بالفعل.');
     if (change.status === 'creating' && entry.data.status !== 'attention') throw new Error('الطلب قيد المعالجة بالفعل.');
     const now = new Date().toISOString();
@@ -166,6 +165,7 @@ export function warehouseProductView(product) {
 export async function listWarehouseProducts() {
   const products = new Map();
   const pageSize = 10;
+  let duplicatePages = 0;
   for (let offset = 0; offset < 1000;) {
     const data = await darb('GET', `/api/warehouse/products/?offset=${offset}&limit=${pageSize}`);
     const page = Array.isArray(data?.results) ? data.results : [];
@@ -176,7 +176,8 @@ export async function listWarehouseProducts() {
       products.set(product.id, product);
       added += 1;
     }
-    if (page.length < pageSize || added === 0) break;
+    duplicatePages = added === 0 ? duplicatePages + 1 : 0;
+    if (page.length < pageSize || duplicatePages >= 2) break;
     offset += page.length;
   }
   return [...products.values()];
@@ -211,6 +212,11 @@ export function shippingComponents(estimate) {
 }
 export function shippingFeeFromEstimate(estimate) {
   return shippingComponents(estimate).reduce((sum, item) => sum + item.amount, 0);
+}
+export function ensureValidCollection(paid, unitPrice, quantity, deliveryFee) {
+  if (paid > unitPrice * quantity + deliveryFee + 0.001) {
+    throw new Error('المبلغ المحصّل أكبر من إجمالي الطلب مع التوصيل.');
+  }
 }
 export async function quoteOrder(input) {
   const clean = validateOrder(input);
@@ -254,6 +260,7 @@ export async function createOrder(input, assignedAgent = null, creator = null) {
   const existing = await readOrder(id);
   if (existing) return existing.data;
   const { clean, service, estimate, deliveryFee } = await quoteOrder(input);
+  ensureValidCollection(clean.paid, clean.unitPrice, clean.quantity, deliveryFee);
   clean.deliveryFee = deliveryFee;
   const config = await settings();
   const now = new Date().toISOString();
@@ -306,6 +313,7 @@ export async function retryShipment(id, destination = {}) {
   const input = { ...entry.data, city: destination.city || entry.data.city,
     area: destination.area || entry.data.area, address: destination.address || entry.data.address };
   const { clean, service, estimate, deliveryFee } = await quoteOrder(input);
+  ensureValidCollection(entry.data.paid, clean.unitPrice, clean.quantity, deliveryFee);
   clean.deliveryFee = deliveryFee;
   await updateOrder(id, { status: 'creating', shippingError: '', city: clean.city, area: clean.area,
     address: clean.address, deliveryFee, shippingPrice: estimate });
@@ -359,10 +367,12 @@ export async function sendStageSms(id, stage) {
   } catch {
     return updateOrder(id, { [field]: 'unknown' });
   }
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok || payload.succeeded !== 1 || payload.failed !== 0 || payload.invalid_numbers?.length || payload.failed_numbers?.length) {
-    return updateOrder(id, { [field]: 'failed', [`${field}Error`]: payload.type || `HTTP ${response.status}` });
+  const payload = await response.json().catch(() => null);
+  if (response.status >= 500 || (response.ok && !payload)) return updateOrder(id, { [field]: 'unknown' });
+  if (!response.ok || payload?.failed > 0 || payload?.invalid_numbers?.length || payload?.failed_numbers?.length) {
+    return updateOrder(id, { [field]: 'failed', [`${field}Error`]: payload?.type || `HTTP ${response.status}` });
   }
+  if (payload?.succeeded !== 1 || payload?.failed !== 0) return updateOrder(id, { [field]: 'unknown' });
   return updateOrder(id, { [field]: 'sent', [`${field}Id`]: payload.sms_template_version?.id || '' });
 }
 export function resalaDeliveryStatus(rows, order, stage) {
@@ -430,6 +440,7 @@ export async function editPendingShipment(id, form, expectedVersion, isAdmin) {
   if (String(record.status).toLowerCase() !== 'pending') throw new Error('درب السبيل يسمح بتعديل الشحنات المعلّقة فقط.');
   const { clean, service, estimate, deliveryFee } = await quoteOrder({ ...order, ...form });
   const paid = isAdmin ? clean.paid : order.paid;
+  ensureValidCollection(paid, clean.unitPrice, clean.quantity, deliveryFee);
   const contactChanged = clean.customer !== order.customer || clean.phone !== order.phone;
   let contactId = order.contactId;
   if (contactChanged || !contactId) {

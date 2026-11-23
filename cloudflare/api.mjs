@@ -1,4 +1,4 @@
-import { removeOrder, createOrder, darb, editPendingShipment, env, json, listDeliveryLocations, listOrders, listWarehouseProducts, quoteOrder, readOrder, resalaReady, retryShipment, sameOrigin, shippingComponents, syncSmsDelivery,
+import { removeOrder, createOrder, darb, editPendingShipment, ensureValidCollection, env, json, listDeliveryLocations, listOrders, listWarehouseProducts, quoteOrder, readOrder, resalaReady, retryShipment, sameOrigin, shippingComponents, syncSmsDelivery,
   saveSettings, sendStageSms, settings, syncOrder, updateOrder } from './core.mjs';
 import { agentSessionCookie, changeOwnAgentPassword, createAgent, getActor, listAgents, publicAgent, readAgent, resetAgentPassword, setAgentEnabled, updateAgentProfile } from './team.mjs';
 import { createAdminNotification, createManualNotifications, listNotifications, markNotificationRead, removePushSubscription, savePushSubscription } from './notifications.mjs';
@@ -126,6 +126,7 @@ export default async function handler(request) {
         if (input.paid !== undefined) {
           const paid = Number(input.paid);
           if (!Number.isFinite(paid) || paid < 0 || paid > 10000000) throw new Error('المبلغ غير صحيح.');
+          ensureValidCollection(paid, Number(entry.data.unitPrice || 0), Number(entry.data.quantity || 0), Number(entry.data.deliveryFee || 0));
           patch.paid = paid;
         }
         if (input.status !== undefined) throw new Error('حالة الشحنة تأتي من درب السبيل. حدّث حالة الشحنة.');
@@ -175,7 +176,7 @@ export default async function handler(request) {
         const entry = await requireOwnOrder(input.id);
         const agent = input.agentId ? await readAgent(input.agentId) : null;
         if (input.agentId && (!agent || !agent.enabled)) throw new Error('المندوبة المختارة غير متاحة.');
-        if (entry.data.commissionPaidAt && agent?.id !== entry.data.agentId) throw new Error('لا يمكن نقل طلب صُرفت عمولته.');
+        if (entry.data.commissionEarnedAt && (agent?.id || '') !== entry.data.agentId) throw new Error('لا يمكن نقل الطلب بعد استحقاق العمولة.');
         return json({ ok: true, data: await updateOrder(input.id, { agentId: agent?.id || '', agentName: agent?.name || '' }) });
       }
       case 'payCommission': {
