@@ -105,7 +105,11 @@ export default async function handler(request) {
         if (data.status === 'attention' && !data.shipmentReference && /Unexpected property has been encountered!|Unable to fetch branch/.test(data.shippingError || '')) {
           const { clean, service, estimate, deliveryFee } = await quoteOrder({ ...data, ...form });
           Object.assign(patch, clean, { serviceId: service, deliveryFee, shippingPrice: estimate });
-          if (clean.customer !== data.customer || clean.phone !== data.phone) patch.contactId = '';
+          if (clean.customer !== data.customer || clean.phone !== data.phone ||
+            JSON.stringify(clean.additionalPhones) !== JSON.stringify(data.additionalPhones || [])) {
+            patch.contactId = '';
+            patch.contactIds = [];
+          }
           if (!isAdmin) patch.paid = data.paid;
         }
         const saved = await updateOrder(input.id, patch, etag);

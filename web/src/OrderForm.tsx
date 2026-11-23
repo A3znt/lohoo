@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, Box, Check, CircleAlert, RefreshCw, Truck, X } from 'lucide-react';
+import { ArrowLeft, Box, Check, CircleAlert, Plus, RefreshCw, Trash2, Truck, X } from 'lucide-react';
 import { api, money, orderTotal, type Actor, type AgentSummary, type OrderInput, type Package, type WarehouseProduct } from './api';
 
 interface Location { city: string; areas: string[] }
@@ -10,7 +10,7 @@ let catalogCache: { value: Catalog; expiresAt: number } | null = null;
 const cachedCatalog = () => catalogCache && catalogCache.expiresAt > Date.now() ? catalogCache.value : null;
 
 export default function OrderForm({ initial, carrierEdit = false, onClose, onCreate, busy, defaultServiceId, agents, actor }: Props) {
-  const [form, setForm] = useState<OrderInput>(initial ?? { id: crypto.randomUUID(), source: 'facebook', customer: '', phone: '', city: '', area: '', address: '', product: '', warehouseProductId: '', warehouseVariantId: '', quantity: 1, unitPrice: 0, deliveryFee: 0, paid: 0, notes: '', serviceId: defaultServiceId });
+  const [form, setForm] = useState<OrderInput>(initial ?? { id: crypto.randomUUID(), source: 'facebook', customer: '', phone: '', additionalPhones: [], city: '', area: '', address: '', product: '', warehouseProductId: '', warehouseVariantId: '', quantity: 1, unitPrice: 0, deliveryFee: 0, paid: 0, weightKg: 0, notes: '', serviceId: defaultServiceId });
   const [locations, setLocations] = useState<Location[]>(() => cachedCatalog()?.locations || []);
   const [packages, setPackages] = useState<Package[]>(() => cachedCatalog()?.packages || []);
   const [products, setProducts] = useState<WarehouseProduct[]>(() => cachedCatalog()?.products || []);
@@ -51,11 +51,16 @@ export default function OrderForm({ initial, carrierEdit = false, onClose, onCre
     form.warehouseProductId, form.warehouseVariantId, form.quantity, form.unitPrice, form.serviceId]);
   const normalizedPhone = form.phone.replace(/[\s()+-]/g, '');
   const phoneValid = /^(?:0|218)(?:91|92|93|94)\d{7}$/.test(normalizedPhone);
+  const extraPhones = form.additionalPhones || [];
+  const normalizedExtras = extraPhones.map((number) => number.replace(/[\s()+-]/g, '').replace(/^0/, '218'));
+  const extraPhonesValid = extraPhones.every((number) => /^(?:0|218)(?:91|92|93|94)\d{7}$/.test(number.replace(/[\s()+-]/g, ''))) &&
+    new Set([normalizedPhone.replace(/^0/, '218'), ...normalizedExtras]).size === extraPhones.length + 1;
+  const weightValid = Number.isFinite(form.weightKg ?? 0) && (form.weightKg ?? 0) >= 0 && (form.weightKg ?? 0) <= 1000 && Number((form.weightKg ?? 0).toFixed(2)) === (form.weightKg ?? 0);
   const amountValid = [form.unitPrice, form.paid].every((number) =>
     Number.isFinite(number) && number >= 0 && number <= 10000000);
   const quantityValid = Number.isInteger(form.quantity) && form.quantity >= 1 && form.quantity <= 10000;
   const serviceAvailable = packages.some((item) => item._id === form.serviceId && !item.attributes?.includes('deposit'));
-  const ready = Boolean(form.customer.trim() && phoneValid && form.city && form.area && form.address.trim() &&
+  const ready = Boolean(form.customer.trim() && phoneValid && extraPhonesValid && weightValid && form.city && form.area && form.address.trim() &&
     selectedProduct?.isPublished && !selectedProduct.isBlocked && selectedVariant && serviceAvailable &&
     quantityValid && amountValid && !loading && !loadError);
   const currentQuote = ready && quote?.input === quoteInput ? quote.value : null;
@@ -96,6 +101,7 @@ export default function OrderForm({ initial, carrierEdit = false, onClose, onCre
       <div className="form-section-title"><span>01</span><div><strong>الزبون والمصدر</strong><small>بيانات الطلب من محادثتك</small></div></div>
       <div className="source-picker"><button type="button" aria-pressed={form.source === 'facebook'} className={form.source === 'facebook' ? 'selected' : ''} onClick={() => set('source', 'facebook')}>فيسبوك</button><button type="button" aria-pressed={form.source === 'instagram'} className={form.source === 'instagram' ? 'selected' : ''} onClick={() => set('source', 'instagram')}>إنستغرام</button></div>
       <div className="field-grid"><label className="field">اسم الزبون<input value={form.customer} maxLength={160} onChange={(e) => set('customer', e.target.value)} placeholder="الاسم الكامل" /></label><label className="field">رقم الهاتف<input value={form.phone} onChange={(e) => set('phone', e.target.value)} placeholder="0912345678" type="tel" inputMode="tel" autoComplete="tel" dir="ltr" aria-invalid={Boolean(form.phone.trim() && !phoneValid)} />{form.phone.trim() && !phoneValid && <small className="field-hint-error">أدخل رقمًا ليبيًا مثل 0912345678 أو +218912345678</small>}</label></div>
+      <div className="extra-phones"><div className="extra-phones-head"><strong>أرقام إضافية للزبون</strong><button type="button" className="btn ghost" disabled={extraPhones.length >= 4} onClick={() => set('additionalPhones', [...extraPhones, ''])}><Plus size={15} /> إضافة رقم</button></div><small>ستظهر كلها لدرّب السبيل كجهات اتصال. رسالة التأكيد تُرسل للرقم الأساسي فقط.</small>{extraPhones.map((number, index) => <div className="extra-phone-row" key={index}><input aria-label={`الرقم الإضافي ${index + 1}`} type="tel" inputMode="tel" dir="ltr" value={number} onChange={(e) => set('additionalPhones', extraPhones.map((old, offset) => offset === index ? e.target.value : old))} placeholder="0912345678" /><button type="button" className="btn ghost" aria-label={`حذف الرقم الإضافي ${index + 1}`} onClick={() => set('additionalPhones', extraPhones.filter((_, offset) => offset !== index))}><Trash2 size={16} /></button></div>)}{extraPhones.length > 0 && !extraPhonesValid && <small className="field-hint-error" role="alert">تأكد من صحة الأرقام الإضافية وعدم تكرارها.</small>}</div>
       {!initial && actor.role === 'admin' && <label className="field">المندوبة<select value={form.agentId || ''} onChange={(e) => set('agentId', e.target.value)}><option value="">بدون مندوبة</option>{agents.filter((a) => a.enabled).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</select></label>}
       <div className="form-section-title"><span>02</span><div><strong>العنوان من درب السبيل</strong><small>اختر مدينة ثم منطقة من القائمة المعتمدة</small></div></div>
       <div className="field-grid"><label className="field">المدينة<select value={form.city} disabled={loading} onChange={(e) => { setForm((old) => ({ ...old, city: e.target.value, area: '' })); setAreaQuery(''); }}><option value="">اختر المدينة</option>{locations.map((item) => <option key={item.city} value={item.city}>{item.city}</option>)}</select></label><label className="field">المنطقة{selectedLocation && selectedLocation.areas.length > 12 && <input type="search" value={areaQuery} onChange={(e) => { setAreaQuery(e.target.value); set('area', ''); }} placeholder="ابحث عن المنطقة" />}<select value={form.area} disabled={!form.city || loading} onChange={(e) => set('area', e.target.value)}><option value="">اختر المنطقة</option>{selectedLocation?.areas.filter((area) => area.includes(areaQuery.trim())).map((area) => <option key={area} value={area}>{area}</option>)}</select></label></div>
@@ -107,6 +113,7 @@ export default function OrderForm({ initial, carrierEdit = false, onClose, onCre
       {selectedProduct && form.unitPrice !== selectedProduct.salePrice && <div className="catalog-price-note" role="note"><span>سعر {selectedProduct.name} في مخزون درب السبيل الآن {money(selectedProduct.salePrice)}؛ سعر الطلب الحالي {money(form.unitPrice)}.</span><button type="button" className="btn ghost" onClick={() => set('unitPrice', selectedProduct.salePrice)}>استخدم سعر المخزون</button></div>}
       {selectedProduct && <label className="field">الصنف أو القياس<select value={form.warehouseVariantId} onChange={(e) => chooseVariant(e.target.value)}>{selectedProduct.variants.map((variant) => <option key={variant.id} value={variant.id}>{variant.sku}{variant.attributes.length ? ` · ${variant.attributes.map((part) => part.value).join(' / ')}` : ''}</option>)}</select></label>}
       {selectedVariant && <div className="warehouse-summary"><span><Box size={15} /> SKU: {selectedVariant.sku}</span><span>القياس: {selectedVariant.widthCM} × {selectedVariant.heightCM} × {selectedVariant.lengthCM} سم</span></div>}
+      <label className="field">الوزن التقريبي بالكيلو (اختياري)<input type="number" min="0" max="1000" step="0.01" value={form.weightKg || ''} onChange={(e) => set('weightKg', e.target.value === '' ? 0 : Number(e.target.value))} placeholder="مثال: 2.5" />{!weightValid && <small className="field-hint-error">أدخل وزنًا من 0 إلى 1000 كجم، حتى منزلتين عشريتين.</small>}<small className="field-hint">يرسل الوزن في ملاحظات الشحنة؛ درب السبيل لا يرجع حقل وزن مستقلًا في بيانات المنتج الحالية.</small></label>
       <label className="field">خدمة التوصيل<select value={form.serviceId || ''} disabled={loading} onChange={(e) => set('serviceId', e.target.value)}><option value="">اختر الخدمة</option>{packages.filter((item) => !item.attributes?.includes('deposit')).map((item) => <option key={item._id} value={item._id}>{item.title || item.name || item._id}</option>)}</select></label>
       {!loading && form.serviceId && !serviceAvailable && <p className="field-hint-error" role="alert">خدمة التوصيل المحفوظة لم تعد متاحة؛ اختر خدمة أخرى من درب السبيل.</p>}
       <div className="field-grid"><label className="field">الكمية<input type="number" min="1" step="1" value={form.quantity} onChange={(e) => set('quantity', Number(e.target.value || 0))} /></label><label className="field">سعر القطعة<input type="number" min="0" step="0.01" value={form.unitPrice} onChange={(e) => set('unitPrice', Number(e.target.value || 0))} /></label></div>

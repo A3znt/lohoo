@@ -180,6 +180,18 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
 .order-meta,.row-tracking small{color:#867866}
 .order-location{display:inline-flex;align-items:center;gap:5px;max-width:100%;margin-top:5px;color:#70552f;font-size:11px;font-weight:700;line-height:1.5}
 .order-location svg{flex:none;color:#a7834e}
+.phone-count{margin-inline-start:6px;color:#8a6a3b;font-size:10px;font-style:normal;font-weight:750}
+.extra-phones{display:grid;gap:8px;margin:6px 0 14px;padding:13px;border:1px solid #e7d8bf;border-radius:14px;background:#fffaf1}
+.extra-phones-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.extra-phones-head strong{font-size:12px;color:#584026}
+.extra-phones-head .btn{min-height:34px;padding:6px 10px;font-size:11px}
+.extra-phones>small{color:#806e54;line-height:1.6}
+.extra-phone-row{display:flex;gap:7px}
+.extra-phone-row input{flex:1;min-width:0;min-height:41px;border:1px solid #ddccb2;border-radius:10px;padding:8px 11px;background:#fff;color:#352b20;font:inherit}
+.extra-phone-row .btn{min-width:42px;padding:8px;color:#9a6049}
+.extra-phone-detail{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.extra-phone-detail .detail-line{flex:1;min-width:0}
+.extra-phone-detail a{display:inline-flex;align-items:center;gap:4px;color:#78532a;font-size:11px;font-weight:700;text-decoration:none}
 .metric-top .copy-button{background:#f5ecdc}
 .metric-top .copy-button:hover{background:#ecddc2}
 .sort-control{color:#75634d}

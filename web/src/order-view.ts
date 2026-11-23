@@ -21,7 +21,7 @@ export function filterOrders(orders: readonly Order[], status: 'all' | OrderStat
     if (status !== 'all' && order.status !== status) return false;
     if (!needle) return true;
     const searchable = [
-      orderNumber(order), order.customer, order.phone, order.product, order.sku,
+      orderNumber(order), order.customer, order.phone, ...(order.additionalPhones || []), order.product, order.sku,
       order.city, order.area, order.address, order.shipmentReference,
       order.agentName, order.createdByName,
     ];

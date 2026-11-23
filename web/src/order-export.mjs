@@ -7,7 +7,7 @@ const headings = [
   'رقم الطلب', 'تاريخ الإنشاء', 'الزبون', 'رقم الهاتف', 'المصدر',
   'المنتج', 'الكمية', 'سعر القطعة', 'رسوم التوصيل', 'الإجمالي',
   'المحصّل', 'المتبقي', 'حالة الطلب', 'رقم التتبع',
-  'المدينة', 'المنطقة', 'العنوان', 'المندوبة', 'ملاحظات',
+  'المدينة', 'المنطقة', 'العنوان', 'المندوبة', 'ملاحظات', 'أرقام إضافية', 'الوزن التقريبي (كجم)',
 ];
 
 const statuses = {
@@ -39,7 +39,7 @@ export function exportOrdersCsv(orders) {
       order.product, order.quantity, order.unitPrice, order.deliveryFee,
       total, order.paid, remaining, statuses[order.status] || order.status,
       order.shipmentReference, order.city, order.area, order.address,
-      order.agentName || '', order.notes,
+      order.agentName || '', order.notes, (order.additionalPhones || []).join(' / '), order.weightKg || '',
     ].map(csvCell).join(','));
   }
   return '\ufeff' + lines.join('\r\n') + '\r\n';

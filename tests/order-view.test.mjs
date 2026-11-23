@@ -33,11 +33,12 @@ test('sort by newest, oldest and amount without mutating original orders', () =>
 
 test('search matches phone, city, shipment and explicit status', () => {
   const orders = [makeOrder('01', '2026-11-20T10:00:00Z', 20, 'on_way'),
-    makeOrder('02', '2026-11-21T10:00:00Z', 20, 'delivered')];
+    { ...makeOrder('02', '2026-11-21T10:00:00Z', 20, 'delivered'), additionalPhones: ['218922345678'] }];
   assert.equal(filterOrders(orders, 'all', '218912345678').length, 2);
   assert.equal(filterOrders(orders, 'on_way', 'SHIP-01').length, 1);
   assert.equal(filterOrders(orders, 'delivered', 'SHIP-01').length, 0);
   assert.equal(filterOrders(orders, 'all', 'طرابلس').length, 2);
+  assert.equal(filterOrders(orders, 'all', '218922345678').length, 1);
 });
 
 test('seven-day activity excludes invalid dates and outside-window orders', () => {

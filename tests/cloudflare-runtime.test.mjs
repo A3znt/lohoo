@@ -2,7 +2,17 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { generateKeyPairSync, scryptSync } from 'node:crypto';
 import { binding, ordersStore, withContext } from '../cloudflare/runtime.mjs';
-import { adminPasswordValid, editPendingShipment, ensureValidCollection, isAuthenticated, listWarehouseProducts, removeOrder, sameOrigin, sendStageSms, sessionCookie, shippingComponents, shippingFeeFromEstimate, syncOrder, syncSmsDelivery, warehouseSelection } from '../cloudflare/core.mjs';
+import { adminPasswordValid, editPendingShipment, ensureValidCollection, isAuthenticated, listWarehouseProducts, removeOrder, sameOrigin, sendStageSms, sessionCookie, shippingComponents, shippingFeeFromEstimate, syncOrder, syncSmsDelivery, validateOrder, warehouseSelection } from '../cloudflare/core.mjs';
+
+test('additional contact numbers and estimated weight are validated before any carrier request', () => {
+  const input = { customer: 'زبون', phone: '0912345678', additionalPhones: ['+218923456789'], city: 'طرابلس', area: 'عين زارة',
+    address: 'شارع 1', product: 'طاولة', quantity: 1, unitPrice: 350, weightKg: 2.5 };
+  assert.deepEqual(validateOrder(input).additionalPhones, ['218923456789']);
+  assert.equal(validateOrder(input).weightKg, 2.5);
+  assert.throws(() => validateOrder({ ...input, additionalPhones: ['0912345678'] }), /مختلفة/);
+  assert.throws(() => validateOrder({ ...input, additionalPhones: ['0910000000', '0920000000', '0930000000', '0940000000', '0911111111'] }), /أربعة/);
+  assert.throws(() => validateOrder({ ...input, weightKg: 2.555 }), /الوزن/);
+});
 import { allocateOrderCode, migrateOrderCodes, planOrderCodeMigration } from '../cloudflare/order-codes.mjs';
 
 test('Darb delivery discounts reduce the quoted shipping fee without hiding the breakdown', () => {
@@ -255,7 +265,9 @@ test('a confirmed agent order alerts the admin once with its carrier code', asyn
   const previousFetch = globalThis.fetch;
   const productId = 'aaaaaaaaaaaaaaaaaaaaaaaa';
   const variantId = 'bbbbbbbbbbbbbbbbbbbbbbbb';
-  globalThis.fetch = async (url) => {
+  const contacts = [];
+  let shipmentBody;
+  globalThis.fetch = async (url, options = {}) => {
     const path = new URL(url).pathname;
     if (path === '/api/local/branches/public') return Response.json({ status: true, data: { results: [
       { countryCode: 'lby', city: 'طرابلس', area: 'عين زارة' }] } });
@@ -264,9 +276,10 @@ test('a confirmed agent order alerts the admin once with its carrier code', asyn
         variants: [{ _id: variantId, sku: 'COMBO' }] }] } });
     if (path === '/api/local/shipments/calculate/shipping/') return Response.json({ status: true, data: {
       invoices: [{ items: [{ type: 'shipping', currency: 'lyd', amount: 15, quantity: 1 }] }] } });
-    if (path === '/api/contacts/') return Response.json({ status: true, data: { _id: 'cccccccccccccccccccccccc' } });
-    if (path === '/api/local/shipments/') return Response.json({ status: true, data: {
+    if (path === '/api/contacts/') { contacts.push(JSON.parse(options.body)); return Response.json({ status: true, data: { _id: String(contacts.length).padStart(24, 'c') } }); }
+    if (path === '/api/local/shipments/') { shipmentBody = JSON.parse(options.body); return Response.json({ status: true, data: {
       _id: 'dddddddddddddddddddddddd', reference: '2384360', status: 'pending' } });
+    }
     throw new Error(`Unexpected Darb request ${path}`);
   };
   try {
@@ -275,7 +288,7 @@ test('a confirmed agent order alerts the admin once with its carrier code', asyn
       await ordersStore().setJSON('meta/order-codes-v1', { counts: {}, completedAt: '2026-11-23T00:00:00Z' });
       const agent = await createAgent({ name: 'منى', username: 'mona', password: 'Mona2026' });
       const cookie = agentSessionCookie(await loginAgent('mona', 'Mona2026')).split(';')[0];
-      const order = { id: '11111111-1111-4111-8111-111111111111', customer: 'زبون', phone: '0912345678',
+      const order = { id: '11111111-1111-4111-8111-111111111111', customer: 'زبون', phone: '0912345678', additionalPhones: ['0923456789'], weightKg: 2.5,
         city: 'طرابلس', area: 'عين زارة', address: 'شارع 1', product: 'طاولة كومبو',
         quantity: 1, unitPrice: 350, deliveryFee: 15, paid: 0, notes: '', source: 'facebook',
         warehouseProductId: productId, warehouseVariantId: variantId };
@@ -288,6 +301,9 @@ test('a confirmed agent order alerts the admin once with its carrier code', asyn
       const first = await create();
       assert.equal(first.data.status, 'confirmed');
       assert.equal(first.data.orderNumber, 'MO001');
+      assert.deepEqual(contacts.map((item) => item.phone), ['+218912345678', '+218923456789']);
+      assert.equal(shipmentBody.contacts.length, 2);
+      assert.match(shipmentBody.notes, /الوزن التقريبي: 2\.5 كجم/);
       assert.equal((await create()).ok, true);
       const alerts = await listNotifications('admin');
       assert.equal(alerts.length, 1);
@@ -568,6 +584,7 @@ test('pending edits reach Darb before local save; absent shipments are archived 
     if (path === '/api/local/branches/public') return Response.json({ status: true, data: { results: [{ countryCode: 'lby', city: 'طرابلس', area: 'عين زارة' }] } });
     if (path === `/api/warehouse/products/${productId}`) return Response.json({ status: true, data: { results: [{ _id: productId, productName: 'منتج', salePrice: 25, isPublished: true, isBlocked: false, variants: [{ _id: variantId, sku: 'SKU' }] }] } });
     if (path === '/api/local/shipments/calculate/shipping/') return Response.json({ status: true, data: { invoices: [{ items: [{ type: 'shipping', currency: 'lyd', amount: 12, quantity: 1 }] }] } });
+    if (path === '/api/contacts/') return Response.json({ status: true, data: { _id: 'new-extra-contact' } });
     if (path === `/api/local/shipments/${shipmentId}` && init.method === 'PATCH') return Response.json(rejectPatch ? { status: false, messages: [{ message: 'Rejected' }] } : { status: true, data: { reference: original.shipmentReference } });
     throw new Error(`Unexpected Darb request ${init.method} ${path}`);
   };
@@ -575,7 +592,7 @@ test('pending edits reach Darb before local save; absent shipments are archived 
     await withContext({ DB: fakeD1(), DARB_API_KEY: 'fixture', DARB_ACCOUNT_ID: 'fixture' }, async () => {
       const store = ordersStore();
       await store.setJSON(`orders/${id}`, original);
-      const input = { ...original, address: 'شارع 2', notes: 'اتصل قبل الوصول' };
+      const input = { ...original, address: 'شارع 2', notes: 'اتصل قبل الوصول', additionalPhones: ['0923456789'], weightKg: 1.25 };
       rejectPatch = true;
       await assert.rejects(editPendingShipment(id, input, original.updatedAt, true), /Rejected/);
       assert.equal((await store.get(`orders/${id}`)).address, 'شارع 1');
@@ -583,9 +600,13 @@ test('pending edits reach Darb before local save; absent shipments are archived 
       const saved = await editPendingShipment(id, input, original.updatedAt, true);
       assert.equal(saved.address, 'شارع 2');
       assert.equal(saved.deliveryFee, 12);
+      assert.deepEqual(saved.additionalPhones, ['218923456789']);
+      assert.equal(saved.weightKg, 1.25);
       const patch = calls.findLast(call => call.method === 'PATCH');
       assert.equal(patch.body.to.address, 'شارع 2');
       assert.match(patch.body.notes, /اتصل قبل الوصول/);
+      assert.match(patch.body.notes, /الوزن التقريبي: 1\.25 كجم/);
+      assert.deepEqual(patch.body.contacts, ['old-contact', 'new-extra-contact']);
       missing = true;
       await assert.rejects(removeOrder(id), /بيانات مختلفة/);
       assert.equal((await store.get(`orders/${id}`)).deletedAt, undefined);

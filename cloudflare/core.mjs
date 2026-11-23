@@ -68,15 +68,25 @@ export function validateOrder(input) {
     result[key] = input[key].trim().slice(0, 160);
   }
   result.phone = phone(input.phone);
+  const extra = input.additionalPhones ?? [];
+  if (!Array.isArray(extra) || extra.length > 4) throw new Error('يمكن إضافة حتى أربعة أرقام هاتف إضافية.');
+  result.additionalPhones = extra.map((value) => phone(value));
+  if (new Set([result.phone, ...result.additionalPhones]).size !== result.additionalPhones.length + 1) {
+    throw new Error('أرقام الهاتف يجب أن تكون مختلفة.');
+  }
   result.source = input.source === 'instagram' ? 'instagram' : 'facebook';
   result.notes = String(input.notes || '').trim().slice(0, 500);
   result.quantity = Number(input.quantity);
   result.unitPrice = Number(input.unitPrice);
   result.deliveryFee = Number(input.deliveryFee || 0);
   result.paid = Number(input.paid || 0);
+  result.weightKg = input.weightKg === undefined || input.weightKg === '' ? 0 : Number(input.weightKg);
   if (!Number.isInteger(result.quantity) || result.quantity < 1 || result.quantity > 10000) throw new Error('الكمية غير صحيحة.');
   for (const key of ['unitPrice', 'deliveryFee', 'paid']) {
     if (!Number.isFinite(result[key]) || result[key] < 0 || result[key] > 10000000) throw new Error('المبلغ غير صحيح.');
+  }
+  if (!Number.isFinite(result.weightKg) || result.weightKg < 0 || result.weightKg > 1000 || Number(result.weightKg.toFixed(2)) !== result.weightKg) {
+    throw new Error('الوزن يجب أن يكون بالكيلو، بين 0 و1000، وحتى منزلتين عشريتين.');
   }
   return result;
 }
@@ -89,6 +99,7 @@ export function orderNumberFromId(id) {
 export function shipmentNotes(order) {
   const enteredBy = String(order.createdByName || 'غير مسجل').trim().slice(0, 80);
   return [`رقم الطلب: ${order.orderNumber || orderNumberFromId(order.id)}`, `أُدخل بواسطة: ${enteredBy}`,
+    ...(Number(order.weightKg) > 0 ? [`الوزن التقريبي: ${Number(order.weightKg)} كجم`] : []),
     ...(order.notes ? [`ملاحظات: ${String(order.notes).trim()}`] : [])].join(' | ').slice(0, 500);
 }
 export async function readOrder(id) {
@@ -285,17 +296,19 @@ export async function createOrder(input, assignedAgent = null, creator = null) {
 async function submitShipment(id, clean, service, estimate, config) {
   const core = shipmentInput(clean, service);
   try {
-    let contactId = (await readOrder(id))?.data?.contactId;
-    if (!contactId) {
-      const contact = await darb('POST', '/api/contacts/', { name: clean.customer, phone: phone(clean.phone, true) });
+    const phones = [clean.phone, ...clean.additionalPhones];
+    const stored = (await readOrder(id))?.data;
+    const contactIds = [...(stored?.contactIds || (stored?.contactId ? [stored.contactId] : []))];
+    for (let index = contactIds.length; index < phones.length; index++) {
+      const contact = await darb('POST', '/api/contacts/', { name: clean.customer, phone: phone(phones[index], true) });
       if (!contact?._id) throw new Error('درب السبيل ما رجّعش رقم جهة الاتصال.');
-      contactId = contact._id;
-      await updateOrder(id, { contactId });
+      contactIds.push(contact._id);
+      await updateOrder(id, { contactId: contactIds[0], contactIds });
     }
     let shipment;
     try {
       const order = (await readOrder(id))?.data;
-      shipment = await darb('POST', '/api/local/shipments/', { ...core, contacts: [contactId], notes: shipmentNotes(order) });
+      shipment = await darb('POST', '/api/local/shipments/', { ...core, contacts: contactIds, notes: shipmentNotes(order) });
     } catch (error) {
       await updateOrder(id, { status: 'attention', shippingError: `قد تكون الشحنة أُنشئت. ${error.message}` });
       return (await readOrder(id)).data;
@@ -498,23 +511,29 @@ export async function editPendingShipment(id, form, expectedVersion, isAdmin) {
   const { clean, service, estimate, deliveryFee } = await quoteOrder({ ...order, ...form });
   const paid = isAdmin ? clean.paid : order.paid;
   ensureValidCollection(paid, clean.unitPrice, clean.quantity, deliveryFee);
-  const contactChanged = clean.customer !== order.customer || clean.phone !== order.phone;
-  let contactId = order.contactId;
-  if (contactChanged || !contactId) {
-    const contact = await darb('POST', '/api/contacts/', { name: clean.customer, phone: phone(clean.phone, true) });
+  const oldPhones = [order.phone, ...(order.additionalPhones || [])];
+  const oldIds = order.contactIds || (order.contactId ? [order.contactId] : []);
+  const phones = [clean.phone, ...clean.additionalPhones];
+  const contactIds = [];
+  for (let index = 0; index < phones.length; index++) {
+    if (clean.customer === order.customer && oldPhones[index] === phones[index] && oldIds[index]) {
+      contactIds.push(oldIds[index]);
+      continue;
+    }
+    const contact = await darb('POST', '/api/contacts/', { name: clean.customer, phone: phone(phones[index], true) });
     if (!contact?._id) throw new Error('درب السبيل لم يرجع معرّف الزبون. لم نعدّل الشحنة.');
-    contactId = contact._id;
+    contactIds.push(contact._id);
   }
   const latest = await readOrder(id);
   if (!latest || latest.etag !== entry.etag) throw new Error('تغيّر الطلب أثناء المراجعة. افتحه مجددًا.');
   const next = { ...order, ...clean, serviceId: service, deliveryFee, paid };
   const changed = await darb('PATCH', `/api/local/shipments/${record._id}`, {
-    ...shipmentInput(next, service), contacts: [contactId], notes: shipmentNotes(next),
+    ...shipmentInput(next, service), contacts: contactIds, notes: shipmentNotes(next),
   });
   if (changed?.reference && String(changed.reference) !== order.shipmentReference) {
     throw new Error('استجابة درب السبيل لم تطابق رقم الشحنة. راجعها قبل إعادة المحاولة.');
   }
-  return updateOrder(id, { ...clean, serviceId: service, deliveryFee, paid, shippingPrice: estimate, contactId,
+  return updateOrder(id, { ...clean, serviceId: service, deliveryFee, paid, shippingPrice: estimate, contactId: contactIds[0], contactIds,
     shipmentId: record._id, darbStatus: 'pending' }, entry.etag);
 }
 

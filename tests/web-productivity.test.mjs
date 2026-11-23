@@ -7,7 +7,7 @@ const read = (path) => readFile(new URL('../' + path, import.meta.url), 'utf8');
 test('copy controls are present for identifiers, phone, tracking and numeric metrics', async () => {
   const [main, copy] = await Promise.all([read('web/src/main.tsx'), read('web/src/CopyButton.tsx')]);
   assert.match(main, /<CopyButton value=\{orderNumber\(order\)\}/);
-  assert.match(main, /label="رقم الهاتف" value=\{order\.phone\} copyable/);
+  assert.match(main, /label="رقم الهاتف الأساسي" value=\{order\.phone\} copyable/);
   assert.match(main, /label="رقم التتبع"[^>]*copyable/);
   assert.match(main, /label="الإجمالي"[^>]*copyable/);
   assert.match(main, /function Metric[\s\S]*?<CopyButton value=\{value\}/);
