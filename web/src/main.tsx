@@ -33,7 +33,6 @@ const statusText: Record<OrderStatus, string> = {
   creating: 'جاري إنشاء الشحنة', confirmed: 'تم التأكيد', on_way: 'في الطريق', postponed: 'مؤجل', delivery_failed: 'تعذّر التوصيل', delivered: 'تم التسليم',
   returned: 'مرتجع', cancelled: 'ملغي', attention: 'يحتاج مراجعة',
 };
-const today = new Intl.DateTimeFormat('ar-LY', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(new Date());
 const shortDate = (value: string) => new Intl.DateTimeFormat('ar-LY', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }).format(new Date(value));
 const emptyBootstrap = (actor: Actor = { role: 'admin', id: 'admin', name: 'المدير' }): Bootstrap => ({
   actor, orders: [], settings: { serviceId: '', autoMessages: true },
@@ -48,6 +47,7 @@ function Source({ value }: { value: Order['source'] }) { return <span className=
 function Empty({ title, description, onClick }: { title: string; description: string; onClick?: () => void }) { return <div className="empty"><div className="empty-art"><ClipboardList size={31} /></div><h3>{title}</h3><p>{description}</p>{onClick && <button className="btn primary" onClick={onClick}><Plus size={18} /> إضافة طلب</button>}</div>; }
 
 function App() {
+  const today = new Intl.DateTimeFormat('ar-LY', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(new Date());
   const [authenticated, setAuthenticated] = useState<boolean | null>(null);
   const [authError, setAuthError] = useState('');
   const [data, setData] = useState<Bootstrap>(() => emptyBootstrap());
