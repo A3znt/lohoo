@@ -44,18 +44,19 @@ export default function OrderForm({ initial, carrierEdit = false, onClose, onCre
     finally { setLoading(false); }
   }
   useEffect(() => { void loadDarb(); }, []);
-  const quoteInput = useMemo(() => JSON.stringify({ customer: form.customer, phone: form.phone, city: form.city, area: form.area,
+  const quoteInput = useMemo(() => JSON.stringify({ city: form.city, area: form.area,
     address: form.address, product: form.product, warehouseProductId: form.warehouseProductId,
     warehouseVariantId: form.warehouseVariantId, quantity: form.quantity, unitPrice: form.unitPrice,
-    serviceId: form.serviceId }), [form.customer, form.phone, form.city, form.area, form.address, form.product,
+    serviceId: form.serviceId }), [form.city, form.area, form.address, form.product,
     form.warehouseProductId, form.warehouseVariantId, form.quantity, form.unitPrice, form.serviceId]);
   const normalizedPhone = form.phone.replace(/[\s()+-]/g, '');
   const phoneValid = /^(?:0|218)(?:91|92|93|94)\d{7}$/.test(normalizedPhone);
   const amountValid = [form.unitPrice, form.paid].every((number) =>
     Number.isFinite(number) && number >= 0 && number <= 10000000);
   const quantityValid = Number.isInteger(form.quantity) && form.quantity >= 1 && form.quantity <= 10000;
+  const serviceAvailable = packages.some((item) => item._id === form.serviceId && !item.attributes?.includes('deposit'));
   const ready = Boolean(form.customer.trim() && phoneValid && form.city && form.area && form.address.trim() &&
-    selectedProduct?.isPublished && !selectedProduct.isBlocked && selectedVariant && form.serviceId &&
+    selectedProduct?.isPublished && !selectedProduct.isBlocked && selectedVariant && serviceAvailable &&
     quantityValid && amountValid && !loading && !loadError);
   const currentQuote = ready && quote?.input === quoteInput ? quote.value : null;
   useEffect(() => {
@@ -107,6 +108,7 @@ export default function OrderForm({ initial, carrierEdit = false, onClose, onCre
       {selectedProduct && <label className="field">الصنف أو القياس<select value={form.warehouseVariantId} onChange={(e) => chooseVariant(e.target.value)}>{selectedProduct.variants.map((variant) => <option key={variant.id} value={variant.id}>{variant.sku}{variant.attributes.length ? ` · ${variant.attributes.map((part) => part.value).join(' / ')}` : ''}</option>)}</select></label>}
       {selectedVariant && <div className="warehouse-summary"><span><Box size={15} /> SKU: {selectedVariant.sku}</span><span>القياس: {selectedVariant.widthCM} × {selectedVariant.heightCM} × {selectedVariant.lengthCM} سم</span></div>}
       <label className="field">خدمة التوصيل<select value={form.serviceId || ''} disabled={loading} onChange={(e) => set('serviceId', e.target.value)}><option value="">اختر الخدمة</option>{packages.filter((item) => !item.attributes?.includes('deposit')).map((item) => <option key={item._id} value={item._id}>{item.title || item.name || item._id}</option>)}</select></label>
+      {!loading && form.serviceId && !serviceAvailable && <p className="field-hint-error" role="alert">خدمة التوصيل المحفوظة لم تعد متاحة؛ اختر خدمة أخرى من درب السبيل.</p>}
       <div className="field-grid"><label className="field">الكمية<input type="number" min="1" step="1" value={form.quantity} onChange={(e) => set('quantity', Number(e.target.value || 0))} /></label><label className="field">سعر القطعة<input type="number" min="0" step="0.01" value={form.unitPrice} onChange={(e) => set('unitPrice', Number(e.target.value || 0))} /></label></div>
       <div className="field-grid"><label className="field">المحصّل من الزبون<input type="number" min="0" max={currentQuote ? total : 10000000} step="0.01" value={form.paid} aria-invalid={!collectionValid} onChange={(e) => set('paid', Number(e.target.value || 0))} /></label><label className="field">ملاحظات<input value={form.notes} onChange={(e) => set('notes', e.target.value)} placeholder="اختياري" /></label></div>
       {(!quantityValid || !amountValid) && <p className="field-hint-error" role="alert">تحقّق من الكمية والمبالغ: الكمية عدد صحيح موجب، والمبالغ لا تقل عن صفر.</p>}
