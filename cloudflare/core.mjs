@@ -203,8 +203,15 @@ export function shippingComponents(estimate) {
   const invoices = Array.isArray(estimate?.invoices) ? estimate.invoices : [];
   const items = invoices.flatMap((invoice) => Array.isArray(invoice.items) ? invoice.items : [])
     .filter((item) => item.type === 'shipping' && String(item.currency).toLowerCase() === 'lyd')
-    .map((item) => ({ label: String(item.description || 'رسوم التوصيل'), amount: Number(item.amount) * Number(item.quantity || 1) }));
-  if (!items.length || items.some((item) => !Number.isFinite(item.amount) || item.amount < 0)) {
+    .map((item) => {
+      const amount = Number(item.amount) * Number(item.quantity ?? 1);
+      const description = String(item.description || '').trim();
+      const label = amount < 0 ? (description && !description.startsWith('خصم') ? `خصم · ${description}` : description || 'خصم التوصيل')
+        : description || 'رسوم التوصيل';
+      return { label, amount };
+    });
+  const total = items.reduce((sum, item) => sum + item.amount, 0);
+  if (!items.length || items.some((item) => !Number.isFinite(item.amount)) || !Number.isFinite(total) || total < 0) {
     throw new Error('درب السبيل لم يرجع سعر توصيل واضحًا بالدينار.');
   }
   return items;

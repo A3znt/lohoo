@@ -2,7 +2,26 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { generateKeyPairSync, scryptSync } from 'node:crypto';
 import { binding, ordersStore, withContext } from '../cloudflare/runtime.mjs';
-import { adminPasswordValid, editPendingShipment, ensureValidCollection, isAuthenticated, listWarehouseProducts, removeOrder, sameOrigin, sendStageSms, sessionCookie, syncOrder, syncSmsDelivery, warehouseSelection } from '../cloudflare/core.mjs';
+import { adminPasswordValid, editPendingShipment, ensureValidCollection, isAuthenticated, listWarehouseProducts, removeOrder, sameOrigin, sendStageSms, sessionCookie, shippingComponents, shippingFeeFromEstimate, syncOrder, syncSmsDelivery, warehouseSelection } from '../cloudflare/core.mjs';
+
+test('Darb delivery discounts reduce the quoted shipping fee without hiding the breakdown', () => {
+  const estimate = { invoices: [{ currency: 'lyd', items: [
+    { type: 'product', currency: 'lyd', amount: 350, quantity: 1 },
+    { type: 'shipping', currency: 'lyd', amount: 30, breakdown: { branchToBranch: 25, dropToDoor: 5 } },
+    { type: 'shipping', currency: 'lyd', amount: -10, description: 'خصم التوصيل' },
+  ], _sums: { shipping: { sum: 20 } } }] };
+  assert.deepEqual(shippingComponents(estimate), [
+    { label: 'رسوم التوصيل', amount: 30 }, { label: 'خصم التوصيل', amount: -10 },
+  ]);
+  assert.deepEqual(shippingComponents({ invoices: [{ items: [
+    { type: 'shipping', currency: 'lyd', amount: 30 },
+    { type: 'shipping', currency: 'lyd', amount: -10, description: 'رسوم ثابتة للشحنة' },
+  ] }] })[1], { label: 'خصم · رسوم ثابتة للشحنة', amount: -10 });
+  assert.equal(shippingFeeFromEstimate(estimate), 20);
+  assert.throws(() => shippingFeeFromEstimate({ invoices: [{ items: [
+    { type: 'shipping', currency: 'lyd', amount: -1 },
+  ] }] }), /سعر توصيل واضح/);
+});
 import { carrierEvent, createAdminNotification, createCarrierNotification, listNotifications, markNotificationRead, removePushSubscription, savePushSubscription } from '../cloudflare/notifications.mjs';
 import { dailyReviewedIds, maybeSendMorningDigest, reviewShipment, tripoliClock } from '../cloudflare/daily-review.mjs';
 import sync from '../cloudflare/sync.mjs';
