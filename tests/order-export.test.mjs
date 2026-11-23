@@ -17,6 +17,7 @@ test('export preserves Arabic and computes monetary fields without guessing stat
     exportNumber: '000000123456', createdAt: '2026-11-21T10:30:00.000Z',
     customer: '=DANGEROUS', phone: '218912345678', source: 'instagram',
     product: 'حقيبة', quantity: 2, unitPrice: 80, deliveryFee: 15,
+    items: [{ product: 'حقيبة', quantity: 2, unitPrice: 80 }, { product: 'طاولة', quantity: 1, unitPrice: 50 }],
     paid: 30, status: 'confirmed', shipmentReference: 'SH123',
     city: 'طرابلس', area: 'عين زارة', address: 'شارع 1',
     agentName: 'سجى', notes: 'قرب السوق',
@@ -26,7 +27,8 @@ test('export preserves Arabic and computes monetary fields without guessing stat
   assert.match(csv, /"000000123456"/);
   assert.match(csv, /"'=DANGEROUS"/);
   assert.match(csv, /"إنستغرام"/);
-  assert.match(csv, /"175","30","145"/);
+  assert.match(csv, /"225","30","195"/);
+  assert.match(csv, /طاولة × 1 × 50/);
   assert.match(csv, /"تم التأكيد"/);
   assert.equal(csv.split('\r\n').length, 3);
   assert.equal(exportOrdersCsv([]).split('\r\n').length, 2);

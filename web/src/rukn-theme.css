@@ -192,6 +192,21 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
 .extra-phone-detail{display:flex;align-items:center;justify-content:space-between;gap:8px}
 .extra-phone-detail .detail-line{flex:1;min-width:0}
 .extra-phone-detail a{display:inline-flex;align-items:center;gap:4px;color:#78532a;font-size:11px;font-weight:700;text-decoration:none}
+.order-items{display:grid;gap:11px;margin:8px 0 13px}
+.order-item-card{display:grid;gap:10px;padding:15px;border:1px solid #e5d6be;border-radius:17px;background:#fbf7ef;box-shadow:0 5px 15px #6e51200a}
+.order-item-head{display:flex;align-items:center;justify-content:space-between;gap:10px;color:#503a22;font-size:13px}
+.order-item-head button{display:grid;place-items:center;width:31px;height:31px;border:0;border-radius:9px;background:#f7e8df;color:#a75c48;cursor:pointer}
+.order-item-card .field{margin:0}
+.order-item-card .warehouse-summary{margin:0;background:#fffaf0;border-color:#ead9bb;color:#6b5436}
+.order-item-card .catalog-price-note{margin:0}
+.add-order-item{display:flex;align-items:center;justify-content:center;gap:7px;width:100%;min-height:44px;border:1px solid #ae8950;border-radius:13px;background:#fffdfa;color:#76532a;font:inherit;font-size:12px;font-weight:800;cursor:pointer}
+.add-order-item:hover:not(:disabled){background:#f5ead8}
+.add-order-item:disabled{opacity:.55;cursor:not-allowed}
+.payment-method-card{display:grid;gap:5px;margin:12px 0;padding:14px;border:1px solid #e4d5bd;border-radius:14px;background:#fffaf1;color:#554128}
+.payment-method-card strong{font-size:12px}.payment-method-card span{font-size:13px;font-weight:750}.payment-method-card small{color:#8a765b;line-height:1.6}
+.confirm-items{display:grid;gap:7px;margin:13px 0;padding:12px;border-radius:12px;background:#f8f1e5}
+.confirm-items>div{display:flex;justify-content:space-between;gap:10px;color:#5c492f;font-size:11px}
+.confirm-items strong{white-space:nowrap}
 .metric-top .copy-button{background:#f5ecdc}
 .metric-top .copy-button:hover{background:#ecddc2}
 .sort-control{color:#75634d}

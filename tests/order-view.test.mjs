@@ -57,10 +57,12 @@ test('seven-day activity excludes invalid dates and outside-window orders', () =
 });
 
 test('dashboard metrics use only included order values', () => {
-  const list = [makeOrder('01', '2026-11-20T10:00:00Z', 100),
+  const list = [{ ...makeOrder('01', '2026-11-20T10:00:00Z', 100), items: [
+    { product: 'أول', quantity: 1, unitPrice: 100 }, { product: 'ثاني', quantity: 2, unitPrice: 25 },
+  ] },
     makeOrder('02', '2026-11-20T10:00:00Z', 50, 'cancelled')];
   const metrics = dashboardMetrics(list);
   assert.equal(metrics.total, 2);
-  assert.equal(metrics.revenue, 110);
-  assert.equal(metrics.due, 110);
+  assert.equal(metrics.revenue, 160);
+  assert.equal(metrics.due, 160);
 });

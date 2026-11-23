@@ -41,7 +41,8 @@ export default async function handler(request) {
         const assignedOrders = isAdmin ? allOrders : allOrders.filter((order) => order.agentId === actor.id);
         const agents = isAdmin ? await listAgents() : [];
         const walletEntries = isAdmin ? [] : assignedOrders.filter((order) => !order.deletedAt || order.commissionEarnedAt || order.commissionPaidAt).map((order) => ({
-          orderId: order.id, orderNumber: order.orderNumber, customer: order.customer, product: order.product,
+          orderId: order.id, orderNumber: order.orderNumber, customer: order.customer,
+          product: order.items?.length > 1 ? `${order.product} + ${order.items.length - 1} منتج` : order.product,
           status: order.status, createdAt: order.createdAt, deletedAt: order.deletedAt || '',
           commissionAmount: Number(order.commissionAmount || 0), commissionEarnedAt: order.commissionEarnedAt || '',
           commissionPaidAt: order.commissionPaidAt || '',
@@ -143,7 +144,7 @@ export default async function handler(request) {
         try {
           await createAdminNotification(`new-order:${order.id}`, { kind: 'new_order', orderId: order.id,
             title: `${isAdmin ? 'سجّلت' : `${order.createdByName || 'المندوبة'} سجّلت`} طلبًا رقم ${order.orderNumber}`,
-            body: `${order.customer} · ${order.product}${order.shipmentReference ? ` · تأكد في درب السبيل برقم ${order.shipmentReference}` : ' · الشحنة تحتاج مراجعة'}` });
+            body: `${order.customer} · ${order.product}${order.items?.length > 1 ? ` + ${order.items.length - 1} منتج` : ''}${order.shipmentReference ? ` · تأكد في درب السبيل برقم ${order.shipmentReference}` : ' · الشحنة تحتاج مراجعة'}` });
         } catch (error) { console.error('New order notification failed', order.id, error instanceof Error ? error.message : error); }
         return json({ ok: true, data: order });
       }
@@ -159,7 +160,7 @@ export default async function handler(request) {
         if (input.paid !== undefined) {
           const paid = Number(input.paid);
           if (!Number.isFinite(paid) || paid < 0 || paid > 10000000) throw new Error('المبلغ غير صحيح.');
-          ensureValidCollection(paid, Number(entry.data.unitPrice || 0), Number(entry.data.quantity || 0), Number(entry.data.deliveryFee || 0));
+          ensureValidCollection(paid, Number(entry.data.unitPrice || 0), Number(entry.data.quantity || 0), Number(entry.data.deliveryFee || 0), entry.data.items);
           patch.paid = paid;
         }
         if (input.status !== undefined) throw new Error('حالة الشحنة تأتي من درب السبيل. حدّث حالة الشحنة.');

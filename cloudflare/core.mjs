@@ -61,7 +61,7 @@ export function phone(value, plus = false) {
 }
 export function validateOrder(input) {
   if (!input || typeof input !== 'object') throw new Error('بيانات الطلب ناقصة.');
-  const required = ['customer', 'city', 'area', 'address', 'product'];
+  const required = ['customer', 'city', 'area', 'address'];
   const result = {};
   for (const key of required) {
     if (typeof input[key] !== 'string' || !input[key].trim()) throw new Error(`الحقل ${key} مطلوب.`);
@@ -76,19 +76,35 @@ export function validateOrder(input) {
   }
   result.source = input.source === 'instagram' ? 'instagram' : 'facebook';
   result.notes = String(input.notes || '').trim().slice(0, 500);
-  result.quantity = Number(input.quantity);
-  result.unitPrice = Number(input.unitPrice);
+  const rawItems = Array.isArray(input.items) && input.items.length ? input.items : [input];
+  if (rawItems.length > 8) throw new Error('يمكن إضافة حتى ثمانية منتجات في الطلب الواحد.');
+  result.items = rawItems.map((item, index) => {
+    const quantity = Number(item.quantity);
+    const unitPrice = Number(item.unitPrice);
+    if (!Number.isInteger(quantity) || quantity < 1 || quantity > 10000) throw new Error(`كمية المنتج ${index + 1} غير صحيحة.`);
+    if (!Number.isFinite(unitPrice) || unitPrice < 0 || unitPrice > 10000000) throw new Error(`سعر المنتج ${index + 1} غير صحيح.`);
+    return { product: String(item.product || input.product || '').trim().slice(0, 160), quantity, unitPrice,
+      warehouseProductId: String(item.warehouseProductId || ''), warehouseVariantId: String(item.warehouseVariantId || '') };
+  });
+  result.product = result.items[0].product;
+  result.quantity = result.items[0].quantity;
+  result.unitPrice = result.items[0].unitPrice;
   result.deliveryFee = Number(input.deliveryFee || 0);
   result.paid = Number(input.paid || 0);
   result.weightKg = input.weightKg === undefined || input.weightKg === '' ? 0 : Number(input.weightKg);
-  if (!Number.isInteger(result.quantity) || result.quantity < 1 || result.quantity > 10000) throw new Error('الكمية غير صحيحة.');
-  for (const key of ['unitPrice', 'deliveryFee', 'paid']) {
+  for (const key of ['deliveryFee', 'paid']) {
     if (!Number.isFinite(result[key]) || result[key] < 0 || result[key] > 10000000) throw new Error('المبلغ غير صحيح.');
   }
   if (!Number.isFinite(result.weightKg) || result.weightKg < 0 || result.weightKg > 1000 || Number(result.weightKg.toFixed(2)) !== result.weightKg) {
     throw new Error('الوزن يجب أن يكون بالكيلو، بين 0 و1000، وحتى منزلتين عشريتين.');
   }
   return result;
+}
+export function orderItems(order) {
+  return Array.isArray(order.items) && order.items.length ? order.items : [order];
+}
+export function productSubtotal(order) {
+  return orderItems(order).reduce((total, item) => total + Number(item.unitPrice || 0) * Number(item.quantity || 0), 0);
 }
 export function ordersStore() { return getCloudflareStore(); }
 export const orderKey = (id) => `orders/${id}`;
@@ -231,8 +247,9 @@ export function shippingComponents(estimate) {
 export function shippingFeeFromEstimate(estimate) {
   return shippingComponents(estimate).reduce((sum, item) => sum + item.amount, 0);
 }
-export function ensureValidCollection(paid, unitPrice, quantity, deliveryFee) {
-  if (paid > unitPrice * quantity + deliveryFee + 0.001) {
+export function ensureValidCollection(paid, unitPrice, quantity, deliveryFee, items) {
+  const subtotal = Array.isArray(items) && items.length ? productSubtotal({ items }) : unitPrice * quantity;
+  if (paid > subtotal + deliveryFee + 0.001) {
     throw new Error('المبلغ المحصّل أكبر من إجمالي الطلب مع التوصيل.');
   }
 }
@@ -245,11 +262,15 @@ export async function quoteOrder(input) {
   if (!locations.some((location) => location.city === clean.city && location.areas.includes(clean.area))) {
     throw new Error('اختار المدينة والمنطقة من قائمة درب السبيل.');
   }
-  const { product, variant } = await warehouseSelection(input.warehouseProductId, input.warehouseVariantId);
-  Object.assign(clean, { product: `${product.name} - ${variant.sku}`, warehouseProductId: product.id,
-    warehouseVariantId: variant.id, sku: variant.sku, variantAttributes: variant.attributes,
-    widthCM: variant.widthCM, heightCM: variant.heightCM, lengthCM: variant.lengthCM,
-    isFragile: variant.isFragile, allowInspection: variant.allowInspection, allowTesting: variant.allowTesting });
+  clean.items = await Promise.all(clean.items.map(async (line) => {
+    const { product, variant } = await warehouseSelection(line.warehouseProductId, line.warehouseVariantId);
+    return { product: `${product.name} - ${variant.sku}`, warehouseProductId: product.id,
+      warehouseVariantId: variant.id, quantity: line.quantity, unitPrice: line.unitPrice,
+      sku: variant.sku, variantAttributes: variant.attributes,
+      widthCM: variant.widthCM, heightCM: variant.heightCM, lengthCM: variant.lengthCM,
+      isFragile: variant.isFragile, allowInspection: variant.allowInspection, allowTesting: variant.allowTesting };
+  }));
+  Object.assign(clean, clean.items[0]);
   const estimate = await darb('POST', '/api/local/shipments/calculate/shipping/', shipmentInput(clean, service));
   return { clean, service, estimate, deliveryFee: shippingFeeFromEstimate(estimate) };
 }
@@ -267,10 +288,10 @@ export function shipmentInput(order, service) {
   return {
     service, paymentBy: 'receiver',
     to: { countryCode: 'lby', city: order.city, area: order.area, address: order.address },
-    products: [{ warehouseProduct: order.warehouseProductId, warehouseProductVariant: order.warehouseVariantId,
-      sku: order.sku, title: order.product, quantity: order.quantity, amount: order.unitPrice, currency: 'lyd', isChargeable: true,
-      widthCM: order.widthCM, heightCM: order.heightCM, lengthCM: order.lengthCM,
-      isFragile: order.isFragile, allowInspection: order.allowInspection, allowTesting: order.allowTesting }],
+    products: orderItems(order).map((item) => ({ warehouseProduct: item.warehouseProductId, warehouseProductVariant: item.warehouseVariantId,
+      sku: item.sku, title: item.product, quantity: item.quantity, amount: item.unitPrice, currency: 'lyd', isChargeable: true,
+      widthCM: item.widthCM, heightCM: item.heightCM, lengthCM: item.lengthCM,
+      isFragile: item.isFragile, allowInspection: item.allowInspection, allowTesting: item.allowTesting })),
   };
 }
 export async function createOrder(input, assignedAgent = null, creator = null) {
@@ -278,7 +299,7 @@ export async function createOrder(input, assignedAgent = null, creator = null) {
   const existing = await readOrder(id);
   if (existing) return existing.data;
   const { clean, service, estimate, deliveryFee } = await quoteOrder(input);
-  ensureValidCollection(clean.paid, clean.unitPrice, clean.quantity, deliveryFee);
+  ensureValidCollection(clean.paid, clean.unitPrice, clean.quantity, deliveryFee, clean.items);
   clean.deliveryFee = deliveryFee;
   const config = await settings();
   const orderNumber = await allocateOrderCode(creator);
@@ -334,7 +355,7 @@ export async function retryShipment(id, destination = {}) {
   const input = { ...entry.data, city: destination.city || entry.data.city,
     area: destination.area || entry.data.area, address: destination.address || entry.data.address };
   const { clean, service, estimate, deliveryFee } = await quoteOrder(input);
-  ensureValidCollection(entry.data.paid, clean.unitPrice, clean.quantity, deliveryFee);
+  ensureValidCollection(entry.data.paid, clean.unitPrice, clean.quantity, deliveryFee, clean.items);
   clean.deliveryFee = deliveryFee;
   await updateOrder(id, { status: 'creating', shippingError: '', city: clean.city, area: clean.area,
     address: clean.address, deliveryFee, shippingPrice: estimate });
@@ -345,8 +366,10 @@ export function smsTemplateRecord(order, stage, detailed = false) {
   if (detailed) {
     const sku = String(order.sku || '').trim();
     const rawProduct = String(order.product || '').trim();
-    const product = sku && rawProduct.endsWith(` - ${sku}`) ? rawProduct.slice(0, -sku.length - 3) : rawProduct;
-    const total = (Number(order.unitPrice || 0) * Number(order.quantity || 0) + Number(order.deliveryFee || 0)).toFixed(2).replace(/\.00$/, '');
+    const firstProduct = sku && rawProduct.endsWith(` - ${sku}`) ? rawProduct.slice(0, -sku.length - 3) : rawProduct;
+    const extraCount = orderItems(order).length - 1;
+    const product = extraCount ? `${firstProduct} +${extraCount}` : firstProduct;
+    const total = (productSubtotal(order) + Number(order.deliveryFee || 0)).toFixed(2).replace(/\.00$/, '');
     Object.assign(base, { $2: product.length > 20 ? `${product.slice(0, 19).trimEnd()}…` : product, $3: sku, $4: total });
     if (stage === 'onWay') base.$5 = String(order.shipmentReference || '');
   } else if (stage === 'onWay') base.$2 = order.shipmentReference;
@@ -510,7 +533,7 @@ export async function editPendingShipment(id, form, expectedVersion, isAdmin) {
   if (String(record.status).toLowerCase() !== 'pending') throw new Error('درب السبيل يسمح بتعديل الشحنات المعلّقة فقط.');
   const { clean, service, estimate, deliveryFee } = await quoteOrder({ ...order, ...form });
   const paid = isAdmin ? clean.paid : order.paid;
-  ensureValidCollection(paid, clean.unitPrice, clean.quantity, deliveryFee);
+  ensureValidCollection(paid, clean.unitPrice, clean.quantity, deliveryFee, clean.items);
   const oldPhones = [order.phone, ...(order.additionalPhones || [])];
   const oldIds = order.contactIds || (order.contactId ? [order.contactId] : []);
   const phones = [clean.phone, ...clean.additionalPhones];

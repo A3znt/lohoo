@@ -7,7 +7,7 @@ const headings = [
   'رقم الطلب', 'تاريخ الإنشاء', 'الزبون', 'رقم الهاتف', 'المصدر',
   'المنتج', 'الكمية', 'سعر القطعة', 'رسوم التوصيل', 'الإجمالي',
   'المحصّل', 'المتبقي', 'حالة الطلب', 'رقم التتبع',
-  'المدينة', 'المنطقة', 'العنوان', 'المندوبة', 'ملاحظات', 'أرقام إضافية', 'الوزن التقريبي (كجم)',
+  'المدينة', 'المنطقة', 'العنوان', 'المندوبة', 'ملاحظات', 'أرقام إضافية', 'الوزن التقريبي (كجم)', 'كل المنتجات',
 ];
 
 const statuses = {
@@ -31,7 +31,8 @@ export function csvCell(input) {
 export function exportOrdersCsv(orders) {
   const lines = [headings.map(csvCell).join(',')];
   for (const order of orders) {
-    const total = order.quantity * order.unitPrice + order.deliveryFee;
+    const items = Array.isArray(order.items) && order.items.length ? order.items : [order];
+    const total = items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0) + order.deliveryFee;
     const remaining = Math.max(0, total - order.paid);
     lines.push([
       order.exportNumber, order.createdAt, order.customer, order.phone,
@@ -40,6 +41,7 @@ export function exportOrdersCsv(orders) {
       total, order.paid, remaining, statuses[order.status] || order.status,
       order.shipmentReference, order.city, order.area, order.address,
       order.agentName || '', order.notes, (order.additionalPhones || []).join(' / '), order.weightKg || '',
+      items.map((item) => `${item.product} × ${item.quantity} × ${item.unitPrice}`).join(' | '),
     ].map(csvCell).join(','));
   }
   return '\ufeff' + lines.join('\r\n') + '\r\n';

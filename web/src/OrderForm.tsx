@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, Box, Check, CircleAlert, Plus, RefreshCw, Trash2, Truck, X } from 'lucide-react';
-import { api, money, orderTotal, type Actor, type AgentSummary, type OrderInput, type Package, type WarehouseProduct } from './api';
+import { api, money, orderTotal, type Actor, type AgentSummary, type OrderInput, type OrderItem, type Package, type WarehouseProduct } from './api';
 
 interface Location { city: string; areas: string[] }
 interface Quote { serviceId: string; deliveryFee: number; components: { label: string; amount: number }[] }
@@ -10,7 +10,11 @@ let catalogCache: { value: Catalog; expiresAt: number } | null = null;
 const cachedCatalog = () => catalogCache && catalogCache.expiresAt > Date.now() ? catalogCache.value : null;
 
 export default function OrderForm({ initial, carrierEdit = false, onClose, onCreate, busy, defaultServiceId, agents, actor }: Props) {
-  const [form, setForm] = useState<OrderInput>(initial ?? { id: crypto.randomUUID(), source: 'facebook', customer: '', phone: '', additionalPhones: [], city: '', area: '', address: '', product: '', warehouseProductId: '', warehouseVariantId: '', quantity: 1, unitPrice: 0, deliveryFee: 0, paid: 0, weightKg: 0, notes: '', serviceId: defaultServiceId });
+  const [form, setForm] = useState<OrderInput>(() => {
+    const base: OrderInput = initial ?? { id: crypto.randomUUID(), source: 'facebook', customer: '', phone: '', additionalPhones: [], city: '', area: '', address: '', product: '', warehouseProductId: '', warehouseVariantId: '', quantity: 1, unitPrice: 0, deliveryFee: 0, paid: 0, weightKg: 0, notes: '', serviceId: defaultServiceId };
+    return { ...base, items: base.items?.length ? base.items : [{ product: base.product, quantity: base.quantity,
+      unitPrice: base.unitPrice, warehouseProductId: base.warehouseProductId, warehouseVariantId: base.warehouseVariantId }] };
+  });
   const [locations, setLocations] = useState<Location[]>(() => cachedCatalog()?.locations || []);
   const [packages, setPackages] = useState<Package[]>(() => cachedCatalog()?.packages || []);
   const [products, setProducts] = useState<WarehouseProduct[]>(() => cachedCatalog()?.products || []);
@@ -25,9 +29,17 @@ export default function OrderForm({ initial, carrierEdit = false, onClose, onCre
   const [areaQuery, setAreaQuery] = useState('');
   const [quoteAttempt, setQuoteAttempt] = useState(0);
   const set = <K extends keyof OrderInput>(key: K, value: OrderInput[K]) => setForm((old) => ({ ...old, [key]: value }));
+  const items = form.items || [];
+  function updateItem(index: number, patch: Partial<OrderItem>) {
+    setForm((old) => {
+      const next = [...(old.items || [])];
+      next[index] = { ...next[index], ...patch };
+      return { ...old, items: next, ...(index === 0 ? { product: next[0].product, quantity: next[0].quantity,
+        unitPrice: next[0].unitPrice, warehouseProductId: next[0].warehouseProductId,
+        warehouseVariantId: next[0].warehouseVariantId } : {}) };
+    });
+  }
   const selectedLocation = locations.find((item) => item.city === form.city);
-  const selectedProduct = products.find((item) => item.id === form.warehouseProductId);
-  const selectedVariant = selectedProduct?.variants.find((item) => item.id === form.warehouseVariantId);
   const pendingProducts = products.filter((item) => !item.isPublished && !item.isBlocked);
 
   async function loadDarb(force = false) {
@@ -45,10 +57,8 @@ export default function OrderForm({ initial, carrierEdit = false, onClose, onCre
   }
   useEffect(() => { void loadDarb(); }, []);
   const quoteInput = useMemo(() => JSON.stringify({ city: form.city, area: form.area,
-    address: form.address, product: form.product, warehouseProductId: form.warehouseProductId,
-    warehouseVariantId: form.warehouseVariantId, quantity: form.quantity, unitPrice: form.unitPrice,
-    serviceId: form.serviceId }), [form.city, form.area, form.address, form.product,
-    form.warehouseProductId, form.warehouseVariantId, form.quantity, form.unitPrice, form.serviceId]);
+    address: form.address, items: form.items, serviceId: form.serviceId }),
+  [form.city, form.area, form.address, form.items, form.serviceId]);
   const normalizedPhone = form.phone.replace(/[\s()+-]/g, '');
   const phoneValid = /^(?:0|218)(?:91|92|93|94)\d{7}$/.test(normalizedPhone);
   const extraPhones = form.additionalPhones || [];
@@ -56,12 +66,13 @@ export default function OrderForm({ initial, carrierEdit = false, onClose, onCre
   const extraPhonesValid = extraPhones.every((number) => /^(?:0|218)(?:91|92|93|94)\d{7}$/.test(number.replace(/[\s()+-]/g, ''))) &&
     new Set([normalizedPhone.replace(/^0/, '218'), ...normalizedExtras]).size === extraPhones.length + 1;
   const weightValid = Number.isFinite(form.weightKg ?? 0) && (form.weightKg ?? 0) >= 0 && (form.weightKg ?? 0) <= 1000 && Number((form.weightKg ?? 0).toFixed(2)) === (form.weightKg ?? 0);
-  const amountValid = [form.unitPrice, form.paid].every((number) =>
+  const amountValid = [form.paid, ...items.map((item) => item.unitPrice)].every((number) =>
     Number.isFinite(number) && number >= 0 && number <= 10000000);
-  const quantityValid = Number.isInteger(form.quantity) && form.quantity >= 1 && form.quantity <= 10000;
+  const quantityValid = items.length > 0 && items.length <= 8 && items.every((item) => Number.isInteger(item.quantity) && item.quantity >= 1 && item.quantity <= 10000);
   const serviceAvailable = packages.some((item) => item._id === form.serviceId && !item.attributes?.includes('deposit'));
   const ready = Boolean(form.customer.trim() && phoneValid && extraPhonesValid && weightValid && form.city && form.area && form.address.trim() &&
-    selectedProduct?.isPublished && !selectedProduct.isBlocked && selectedVariant && serviceAvailable &&
+    items.every((item) => { const product = products.find((row) => row.id === item.warehouseProductId);
+      return product?.isPublished && !product.isBlocked && product.variants.some((variant) => variant.id === item.warehouseVariantId); }) && serviceAvailable &&
     quantityValid && amountValid && !loading && !loadError);
   const currentQuote = ready && quote?.input === quoteInput ? quote.value : null;
   useEffect(() => {
@@ -78,17 +89,26 @@ export default function OrderForm({ initial, carrierEdit = false, onClose, onCre
     }, 550);
     return () => { cancelled = true; window.clearTimeout(timer); };
   }, [quoteInput, ready, products, locations, quoteAttempt]);
-  function chooseProduct(id: string) {
+  function chooseProduct(index: number, id: string) {
     const product = products.find((item) => item.id === id);
     if (product && (!product.isPublished || product.isBlocked)) return;
     const variant = product?.variants[0];
-    setForm((old) => ({ ...old, warehouseProductId: product?.id || '', warehouseVariantId: variant?.id || '',
-      product: product && variant ? `${product.name} - ${variant.sku}` : '', unitPrice: product?.salePrice || 0 }));
+    updateItem(index, { warehouseProductId: product?.id || '', warehouseVariantId: variant?.id || '',
+      product: product && variant ? `${product.name} - ${variant.sku}` : '', unitPrice: product?.salePrice || 0 });
   }
-  function chooseVariant(id: string) {
-    const variant = selectedProduct?.variants.find((item) => item.id === id);
-    setForm((old) => ({ ...old, warehouseVariantId: variant?.id || '',
-      product: selectedProduct && variant ? `${selectedProduct.name} - ${variant.sku}` : '' }));
+  function chooseVariant(index: number, id: string) {
+    const product = products.find((item) => item.id === items[index]?.warehouseProductId);
+    const variant = product?.variants.find((item) => item.id === id);
+    updateItem(index, { warehouseVariantId: variant?.id || '',
+      product: product && variant ? `${product.name} - ${variant.sku}` : '' });
+  }
+  function removeItem(index: number) {
+    setForm((old) => {
+      const next = (old.items || []).filter((_, position) => position !== index);
+      const first = next[0];
+      return { ...old, items: next, product: first.product, quantity: first.quantity, unitPrice: first.unitPrice,
+        warehouseProductId: first.warehouseProductId, warehouseVariantId: first.warehouseVariantId };
+    });
   }
   const total = orderTotal({ ...form, deliveryFee: currentQuote?.deliveryFee || 0 });
   const collectionValid = !currentQuote || form.paid <= total + 0.001;
@@ -106,23 +126,32 @@ export default function OrderForm({ initial, carrierEdit = false, onClose, onCre
       <div className="form-section-title"><span>02</span><div><strong>العنوان من درب السبيل</strong><small>اختر مدينة ثم منطقة من القائمة المعتمدة</small></div></div>
       <div className="field-grid"><label className="field">المدينة<select value={form.city} disabled={loading} onChange={(e) => { setForm((old) => ({ ...old, city: e.target.value, area: '' })); setAreaQuery(''); }}><option value="">اختر المدينة</option>{locations.map((item) => <option key={item.city} value={item.city}>{item.city}</option>)}</select></label><label className="field">المنطقة{selectedLocation && selectedLocation.areas.length > 12 && <input type="search" value={areaQuery} onChange={(e) => { setAreaQuery(e.target.value); set('area', ''); }} placeholder="ابحث عن المنطقة" />}<select value={form.area} disabled={!form.city || loading} onChange={(e) => set('area', e.target.value)}><option value="">اختر المنطقة</option>{selectedLocation?.areas.filter((area) => area.includes(areaQuery.trim())).map((area) => <option key={area} value={area}>{area}</option>)}</select></label></div>
       <label className="field">العنوان التفصيلي<input value={form.address} maxLength={160} onChange={(e) => set('address', e.target.value)} placeholder="الشارع وأقرب نقطة دلالة" /></label>
-      <div className="form-section-title"><span>03</span><div><strong>المنتج وخدمة التوصيل</strong><small>الاسم والقياس من مخزون درب السبيل</small></div></div>
-      <label className="field">المنتج<select value={form.warehouseProductId} disabled={loading} onChange={(e) => chooseProduct(e.target.value)}><option value="">اختر المنتج</option>{products.map((item) => <option key={item.id} value={item.id} disabled={!item.isPublished || item.isBlocked}>{item.name} · {money(item.salePrice)}{item.isBlocked ? ' · موقوف من درب السبيل' : !item.isPublished ? ' · بانتظار اعتماد درب السبيل' : ''}</option>)}</select></label>
+      <div className="form-section-title"><span>03</span><div><strong>المنتجات المطلوبة</strong><small>أضف الأصناف والقياسات من مخزون درب السبيل</small></div></div>
+      <div className="order-items">{items.map((item, index) => {
+        const product = products.find((row) => row.id === item.warehouseProductId);
+        const variant = product?.variants.find((row) => row.id === item.warehouseVariantId);
+        return <section className="order-item-card" key={index} aria-label={`المنتج ${index + 1}`}><div className="order-item-head"><strong>المنتج {index + 1}</strong>{items.length > 1 && <button type="button" aria-label={`حذف المنتج ${index + 1}`} onClick={() => removeItem(index)}><Trash2 size={16} /></button>}</div>
+          <label className="field">المنتج<select value={item.warehouseProductId} disabled={loading} onChange={(e) => chooseProduct(index, e.target.value)}><option value="">اختر المنتج</option>{products.map((row) => <option key={row.id} value={row.id} disabled={!row.isPublished || row.isBlocked}>{row.name} · {money(row.salePrice)}{row.isBlocked ? ' · موقوف' : !row.isPublished ? ' · بانتظار الاعتماد' : ''}</option>)}</select></label>
+          {product && <label className="field">الصنف أو القياس<select value={item.warehouseVariantId} onChange={(e) => chooseVariant(index, e.target.value)}><option value="">اختر القياس</option>{product.variants.map((row) => <option key={row.id} value={row.id}>{row.sku}{row.attributes.length ? ` · ${row.attributes.map((part) => part.value).join(' / ')}` : ''}</option>)}</select></label>}
+          {variant && <div className="warehouse-summary"><span><Box size={15} /> {variant.sku}</span><span>{variant.widthCM} × {variant.heightCM} × {variant.lengthCM} سم</span></div>}
+          <div className="field-grid"><label className="field">الكمية<input type="number" min="1" step="1" value={item.quantity} onChange={(e) => updateItem(index, { quantity: Number(e.target.value || 0) })} /></label><label className="field">سعر القطعة<input type="number" min="0" step="0.01" value={item.unitPrice} onChange={(e) => updateItem(index, { unitPrice: Number(e.target.value || 0) })} /></label></div>
+          {product && item.unitPrice !== product.salePrice && <div className="catalog-price-note" role="note"><span>سعر المخزون الآن {money(product.salePrice)}</span><button type="button" className="btn ghost" onClick={() => updateItem(index, { unitPrice: product.salePrice })}>استخدمه</button></div>}
+        </section>;
+      })}<button type="button" className="add-order-item" disabled={items.length >= 8} onClick={() => set('items', [...items, { product: '', quantity: 1, unitPrice: 0, warehouseProductId: '', warehouseVariantId: '' }])}><Plus size={17} /> إضافة منتج آخر للطلبية</button></div>
       <div className="catalog-toolbar"><span>{products.filter((item) => item.isPublished && !item.isBlocked).length} منتج متاح من درب السبيل</span><button type="button" className="btn ghost" disabled={loading || busy} onClick={() => void loadDarb(true)}><RefreshCw size={15} className={loading ? 'spin' : ''} /> تحديث المنتجات</button></div>
       {pendingProducts.length > 0 && <p className="warehouse-pending-note" role="note">بانتظار اعتماد درب السبيل: {pendingProducts.map((item) => item.name).join('، ')}. تظهر هذه المنتجات للمتابعة، وتصبح قابلة للاختيار بعد نشرها من الشركة.</p>}
-      {selectedProduct && form.unitPrice !== selectedProduct.salePrice && <div className="catalog-price-note" role="note"><span>سعر {selectedProduct.name} في مخزون درب السبيل الآن {money(selectedProduct.salePrice)}؛ سعر الطلب الحالي {money(form.unitPrice)}.</span><button type="button" className="btn ghost" onClick={() => set('unitPrice', selectedProduct.salePrice)}>استخدم سعر المخزون</button></div>}
-      {selectedProduct && <label className="field">الصنف أو القياس<select value={form.warehouseVariantId} onChange={(e) => chooseVariant(e.target.value)}>{selectedProduct.variants.map((variant) => <option key={variant.id} value={variant.id}>{variant.sku}{variant.attributes.length ? ` · ${variant.attributes.map((part) => part.value).join(' / ')}` : ''}</option>)}</select></label>}
-      {selectedVariant && <div className="warehouse-summary"><span><Box size={15} /> SKU: {selectedVariant.sku}</span><span>القياس: {selectedVariant.widthCM} × {selectedVariant.heightCM} × {selectedVariant.lengthCM} سم</span></div>}
       <label className="field">الوزن التقريبي بالكيلو (اختياري)<input type="number" min="0" max="1000" step="0.01" value={form.weightKg || ''} onChange={(e) => set('weightKg', e.target.value === '' ? 0 : Number(e.target.value))} placeholder="مثال: 2.5" />{!weightValid && <small className="field-hint-error">أدخل وزنًا من 0 إلى 1000 كجم، حتى منزلتين عشريتين.</small>}<small className="field-hint">يرسل الوزن في ملاحظات الشحنة؛ درب السبيل لا يرجع حقل وزن مستقلًا في بيانات المنتج الحالية.</small></label>
-      <label className="field">خدمة التوصيل<select value={form.serviceId || ''} disabled={loading} onChange={(e) => set('serviceId', e.target.value)}><option value="">اختر الخدمة</option>{packages.filter((item) => !item.attributes?.includes('deposit')).map((item) => <option key={item._id} value={item._id}>{item.title || item.name || item._id}</option>)}</select></label>
+      <div className="form-section-title"><span>04</span><div><strong>الحسابات والتوصيل</strong><small>راجع طريقة التوصيل والمبلغ قبل التأكيد</small></div></div>
+      <label className="field">طريقة التوصيل<select value={form.serviceId || ''} disabled={loading} onChange={(e) => set('serviceId', e.target.value)}><option value="">اختر الخدمة</option>{packages.filter((item) => !item.attributes?.includes('deposit')).map((item) => <option key={item._id} value={item._id}>{item.title || item.name || item._id}</option>)}</select></label>
       {!loading && form.serviceId && !serviceAvailable && <p className="field-hint-error" role="alert">خدمة التوصيل المحفوظة لم تعد متاحة؛ اختر خدمة أخرى من درب السبيل.</p>}
-      <div className="field-grid"><label className="field">الكمية<input type="number" min="1" step="1" value={form.quantity} onChange={(e) => set('quantity', Number(e.target.value || 0))} /></label><label className="field">سعر القطعة<input type="number" min="0" step="0.01" value={form.unitPrice} onChange={(e) => set('unitPrice', Number(e.target.value || 0))} /></label></div>
-      <div className="field-grid"><label className="field">المحصّل من الزبون<input type="number" min="0" max={currentQuote ? total : 10000000} step="0.01" value={form.paid} aria-invalid={!collectionValid} onChange={(e) => set('paid', Number(e.target.value || 0))} /></label><label className="field">ملاحظات<input value={form.notes} maxLength={500} onChange={(e) => set('notes', e.target.value)} placeholder="اختياري" /></label></div>
+      <div className="payment-method-card"><strong>طريقة الدفع</strong><span>كاش عند الاستلام</span><small>تُحسب عمولة المندوبة في حسابها بعد تسليم الطلب، ولا تُضاف إلى سعر المنتجات.</small></div>
+      <label className="field">المحصّل من الزبون<input type="number" min="0" max={currentQuote ? total : 10000000} step="0.01" value={form.paid} aria-invalid={!collectionValid} onChange={(e) => set('paid', Number(e.target.value || 0))} /></label>
+      <label className="field">ملاحظات للمندوب وسائق الشحن<textarea value={form.notes} maxLength={500} rows={3} onChange={(e) => set('notes', e.target.value)} placeholder="مثال: اتصل قبل الوصول، والقطعة قابلة للمعاينة" /><small className="field-hint">تظهر في ملاحظات شحنة درب السبيل.</small></label>
       {(!quantityValid || !amountValid) && <p className="field-hint-error" role="alert">تحقّق من الكمية والمبالغ: الكمية عدد صحيح موجب، والمبالغ لا تقل عن صفر.</p>}
       {!collectionValid && <p className="field-hint-error" role="alert">المبلغ المحصّل أكبر من إجمالي الطلب مع التوصيل.</p>}
       <div className={`quote-card ${currentQuote ? 'ready' : ''}`}><div><Truck size={19} /><span>سعر التوصيل من درب السبيل</span></div><strong>{currentQuote ? money(currentQuote.deliveryFee) : quoting ? 'جاري الحساب…' : 'أكمل البيانات'}</strong>{currentQuote?.components.map((item, index) => <div className="quote-part" key={index}><span>{item.label}</span><b>{money(item.amount)}</b></div>)}{currentQuote && <small><Check size={14} /> تم حساب السعر حسب المنتج والعنوان والخدمة</small>}{quoteError && <><p className="form-error"><CircleAlert size={16} />{quoteError}</p><button className="btn ghost" onClick={() => setQuoteAttempt((n) => n + 1)}><RefreshCw size={16} /> إعادة حساب السعر</button></>}</div>
       <div className="order-total-preview"><span>إجمالي الطلب مع التوصيل</span><strong>{currentQuote ? money(total) : '—'}</strong></div>
     </div>
     <div className="drawer-footer"><button className="btn ghost" onClick={onClose}>إلغاء</button><button className="btn primary" disabled={busy || !currentQuote || quoting || !collectionValid} onClick={() => initial ? currentQuote && onCreate({ ...form, deliveryFee: currentQuote.deliveryFee }) : setConfirm(true)}>{carrierEdit ? 'تحديث درب السبيل وركن' : initial ? 'حفظ التعديل' : 'مراجعة وإنشاء الشحنة'} <ArrowLeft size={17} /></button></div>
-  </section>{confirm && currentQuote && <div className="confirm-layer"><div className="confirm-card" role="dialog" aria-modal="true" aria-label="تأكيد إنشاء الشحنة"><span className="confirm-icon"><Truck size={25} /></span><h3>تأكيد الشحنة</h3><p>سيُرسل طلب <strong>{form.customer}</strong> إلى درب السبيل، ثم رسالة التأكيد للزبون.</p><div className="confirm-details"><span>{form.city}، {form.area}</span><strong>{money(currentQuote?.deliveryFee || 0)} توصيل</strong></div><div className="confirm-details"><span>إجمالي الطلب</span><strong>{money(total)}</strong></div><div className="confirm-actions"><button className="btn ghost" onClick={() => setConfirm(false)}>مراجعة</button><button className="btn primary" disabled={busy} onClick={() => { setConfirm(false); onCreate({ ...form, deliveryFee: currentQuote?.deliveryFee || 0 }); }}>{busy ? 'جاري الإرسال…' : 'تأكيد وإرسال'}</button></div></div></div>}</div>;
+  </section>{confirm && currentQuote && <div className="confirm-layer"><div className="confirm-card" role="dialog" aria-modal="true" aria-label="تأكيد إنشاء الشحنة"><span className="confirm-icon"><Truck size={25} /></span><h3>تأكيد الشحنة</h3><p>سيُرسل طلب <strong>{form.customer}</strong> إلى درب السبيل، ثم رسالة التأكيد للزبون.</p><div className="confirm-items">{items.map((item, index) => <div key={index}><span>{item.product} × {item.quantity}</span><strong>{money(item.unitPrice * item.quantity)}</strong></div>)}</div><div className="confirm-details"><span>{form.city}، {form.area}</span><strong>{money(currentQuote?.deliveryFee || 0)} توصيل</strong></div><div className="confirm-details"><span>إجمالي الطلب</span><strong>{money(total)}</strong></div><div className="confirm-actions"><button className="btn ghost" onClick={() => setConfirm(false)}>مراجعة</button><button className="btn primary" disabled={busy} onClick={() => { setConfirm(false); onCreate({ ...form, deliveryFee: currentQuote?.deliveryFee || 0 }); }}>{busy ? 'جاري الإرسال…' : 'تأكيد وإرسال'}</button></div></div></div>}</div>;
 }

@@ -97,6 +97,10 @@ test('numeric order number, Darb attribution and customer message stay consisten
   const preview = confirmationText({ ...order, customer: 'أحمد', city: 'طرابلس', area: 'عين زارة', shipmentReference: 'SH2607713' });
   assert.match(preview, /ركن للأثاث/);
   assert.match(preview, /كود الطلبية الخاص بدرب السبيل: SH2607713/);
+  const multiPreview = confirmationText({ ...order, customer: 'أحمد', city: 'طرابلس', area: 'عين زارة', shipmentReference: 'SH2607713',
+    items: [{ product: order.product, quantity: 2, unitPrice: 475 }, { product: 'طاولة', quantity: 1, unitPrice: 50 }] });
+  assert.match(multiPreview, /الإجمالي: 1010 د\.ل/);
+  assert.match(multiPreview, /\+ 1 منتج/);
   assert.doesNotMatch(preview, /لوحو|LOHO/i);
   assert.equal(smsTemplateRecord({ ...order, phone: '0912345678' }, 'confirmation').$1, number);
   const detailed = smsTemplateRecord({ ...order, phone: '0912345678', shipmentReference: 'SH2607713' }, 'onWay', true);

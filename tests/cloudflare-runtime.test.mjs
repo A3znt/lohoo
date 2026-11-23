@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { generateKeyPairSync, scryptSync } from 'node:crypto';
 import { binding, ordersStore, withContext } from '../cloudflare/runtime.mjs';
-import { adminPasswordValid, editPendingShipment, ensureValidCollection, isAuthenticated, listWarehouseProducts, removeOrder, sameOrigin, sendStageSms, sessionCookie, shippingComponents, shippingFeeFromEstimate, syncOrder, syncSmsDelivery, validateOrder, warehouseSelection } from '../cloudflare/core.mjs';
+import { adminPasswordValid, editPendingShipment, ensureValidCollection, isAuthenticated, listWarehouseProducts, productSubtotal, quoteOrder, removeOrder, sameOrigin, sendStageSms, sessionCookie, shippingComponents, shippingFeeFromEstimate, syncOrder, syncSmsDelivery, validateOrder, warehouseSelection } from '../cloudflare/core.mjs';
 
 test('additional contact numbers and estimated weight are validated before any carrier request', () => {
   const input = { customer: 'زبون', phone: '0912345678', additionalPhones: ['+218923456789'], city: 'طرابلس', area: 'عين زارة',
@@ -12,6 +12,39 @@ test('additional contact numbers and estimated weight are validated before any c
   assert.throws(() => validateOrder({ ...input, additionalPhones: ['0912345678'] }), /مختلفة/);
   assert.throws(() => validateOrder({ ...input, additionalPhones: ['0910000000', '0920000000', '0930000000', '0940000000', '0911111111'] }), /أربعة/);
   assert.throws(() => validateOrder({ ...input, weightKg: 2.555 }), /الوزن/);
+});
+
+test('multiple warehouse items reach one Darb shipping quote with the full product subtotal', async () => {
+  const previousFetch = globalThis.fetch;
+  const ids = ['aaaaaaaaaaaaaaaaaaaaaaaa', 'bbbbbbbbbbbbbbbbbbbbbbbb'];
+  const variants = ['cccccccccccccccccccccccc', 'dddddddddddddddddddddddd'];
+  let quoted;
+  globalThis.fetch = async (url, options = {}) => {
+    const path = new URL(url).pathname;
+    if (path === '/api/local/branches/public') return Response.json({ status: true, data: { results: [{ countryCode: 'lby', city: 'طرابلس', area: 'عين زارة' }] } });
+    const index = ids.findIndex((id) => path === `/api/warehouse/products/${id}`);
+    if (index >= 0) return Response.json({ status: true, data: { results: [{ _id: ids[index], productName: `منتج ${index + 1}`,
+      isPublished: true, isBlocked: false, variants: [{ _id: variants[index], sku: `SKU-${index + 1}`, width: 10, height: 20, length: 30 }] }] } });
+    if (path === '/api/local/shipments/calculate/shipping/') { quoted = JSON.parse(options.body);
+      return Response.json({ status: true, data: { invoices: [{ items: [{ type: 'shipping', currency: 'lyd', amount: 25 }] }] } }); }
+    throw new Error(`Unexpected carrier request ${path}`);
+  };
+  try {
+    await withContext({ DB: fakeD1(), DARB_API_KEY: 'fixture', DARB_ACCOUNT_ID: 'fixture' }, async () => {
+      const input = { customer: 'زبون', phone: '0912345678', city: 'طرابلس', area: 'عين زارة', address: 'شارع 1',
+        serviceId: 'service-1', items: [
+          { product: 'أول', warehouseProductId: ids[0], warehouseVariantId: variants[0], quantity: 2, unitPrice: 100 },
+          { product: 'ثاني', warehouseProductId: ids[1], warehouseVariantId: variants[1], quantity: 1, unitPrice: 75 },
+        ] };
+      const quote = await quoteOrder(input);
+      assert.equal(quoted.products.length, 2);
+      assert.deepEqual(quoted.products.map((item) => [item.title, item.quantity, item.amount]), [['منتج 1 - SKU-1', 2, 100], ['منتج 2 - SKU-2', 1, 75]]);
+      assert.equal(productSubtotal(quote.clean), 275);
+      assert.equal(quote.deliveryFee, 25);
+      assert.doesNotThrow(() => ensureValidCollection(300, quote.clean.unitPrice, quote.clean.quantity, 25, quote.clean.items));
+      assert.throws(() => ensureValidCollection(301, quote.clean.unitPrice, quote.clean.quantity, 25, quote.clean.items), /أكبر من إجمالي/);
+    });
+  } finally { globalThis.fetch = previousFetch; }
 });
 import { allocateOrderCode, migrateOrderCodes, planOrderCodeMigration } from '../cloudflare/order-codes.mjs';
 
@@ -592,7 +625,9 @@ test('pending edits reach Darb before local save; absent shipments are archived 
     await withContext({ DB: fakeD1(), DARB_API_KEY: 'fixture', DARB_ACCOUNT_ID: 'fixture' }, async () => {
       const store = ordersStore();
       await store.setJSON(`orders/${id}`, original);
-      const input = { ...original, address: 'شارع 2', notes: 'اتصل قبل الوصول', additionalPhones: ['0923456789'], weightKg: 1.25 };
+      const input = { ...original, address: 'شارع 2', notes: 'اتصل قبل الوصول', additionalPhones: ['0923456789'], weightKg: 1.25,
+        items: [{ product: 'منتج - SKU', warehouseProductId: productId, warehouseVariantId: variantId, quantity: 1, unitPrice: 25 },
+          { product: 'منتج - SKU', warehouseProductId: productId, warehouseVariantId: variantId, quantity: 2, unitPrice: 25 }] };
       rejectPatch = true;
       await assert.rejects(editPendingShipment(id, input, original.updatedAt, true), /Rejected/);
       assert.equal((await store.get(`orders/${id}`)).address, 'شارع 1');
@@ -602,7 +637,10 @@ test('pending edits reach Darb before local save; absent shipments are archived 
       assert.equal(saved.deliveryFee, 12);
       assert.deepEqual(saved.additionalPhones, ['218923456789']);
       assert.equal(saved.weightKg, 1.25);
+      assert.equal(saved.items.length, 2);
       const patch = calls.findLast(call => call.method === 'PATCH');
+      assert.equal(patch.body.products.length, 2);
+      assert.equal(patch.body.products[1].quantity, 2);
       assert.equal(patch.body.to.address, 'شارع 2');
       assert.match(patch.body.notes, /اتصل قبل الوصول/);
       assert.match(patch.body.notes, /الوزن التقريبي: 1\.25 كجم/);

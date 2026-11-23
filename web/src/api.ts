@@ -1,10 +1,11 @@
 export type OrderStatus = 'creating' | 'confirmed' | 'on_way' | 'postponed' | 'delivery_failed' | 'delivered' | 'returned' | 'cancelled' | 'attention';
 export type SmsStatus = 'pending' | 'needs_key' | 'sending' | 'sent' | 'delivered' | 'failed' | 'unknown';
+export interface OrderItem { product: string; quantity: number; unitPrice: number; warehouseProductId: string; warehouseVariantId: string; sku?: string; widthCM?: number; heightCM?: number; lengthCM?: number }
 export interface Order {
   id: string; carrierDeletedAt?: string; orderNumber?: string; createdById?: string; createdByName?: string;
   createdAt: string; updatedAt: string; source: 'facebook' | 'instagram';
   customer: string; phone: string; additionalPhones?: string[]; city: string; area: string; address: string;
-  product: string; quantity: number; unitPrice: number; deliveryFee: number; paid: number; weightKg?: number;
+  product: string; quantity: number; unitPrice: number; items?: OrderItem[]; deliveryFee: number; paid: number; weightKg?: number;
   warehouseProductId?: string; warehouseVariantId?: string; sku?: string;
   widthCM?: number; heightCM?: number; lengthCM?: number;
   variantAttributes?: { key: string; value: string }[];
@@ -25,7 +26,7 @@ export interface Package { _id: string; title?: string; name?: string; price?: n
 export interface WarehouseVariant { id: string; sku: string; attributes: { key: string; value: string }[]; widthCM: number; heightCM: number; lengthCM: number; isFragile: boolean; allowInspection: boolean; allowTesting: boolean }
 export interface WarehouseProduct { id: string; name: string; salePrice: number; currency: string; isPublished: boolean; isReviewed: boolean; isBlocked: boolean; variants: WarehouseVariant[] }
 export interface Bootstrap { actor: Actor; orders: Order[]; settings: Settings; resalaConfigured: boolean; notifications: NotificationRecord[]; vapidPublicKey: string; agents: AgentSummary[]; commission: CommissionSummary; walletEntries: WalletEntry[]; dailyReviewDate: string; dailyReviewedIds: string[] }
-export type OrderInput = Pick<Order, 'id' | 'source' | 'customer' | 'phone' | 'city' | 'area' | 'address' | 'product' | 'quantity' | 'unitPrice' | 'deliveryFee' | 'paid' | 'notes'> & { additionalPhones?: string[]; weightKg?: number; serviceId?: string; warehouseProductId: string; warehouseVariantId: string; agentId?: string };
+export type OrderInput = Pick<Order, 'id' | 'source' | 'customer' | 'phone' | 'city' | 'area' | 'address' | 'product' | 'quantity' | 'unitPrice' | 'deliveryFee' | 'paid' | 'notes'> & { items?: OrderItem[]; additionalPhones?: string[]; weightKg?: number; serviceId?: string; warehouseProductId: string; warehouseVariantId: string; agentId?: string };
 
 export class ApiError extends Error {
   constructor(message: string, public readonly status: number) {
@@ -91,7 +92,10 @@ export async function api<T>(action: string, data: Record<string, unknown> = {})
   return result.data as T;
 }
 export function money(value: number): string { return `${new Intl.NumberFormat('ar-LY', { minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(value)} د.ل`; }
-export function orderTotal(order: Pick<Order, 'quantity' | 'unitPrice' | 'deliveryFee'>): number { return order.quantity * order.unitPrice + order.deliveryFee; }
+export function orderTotal(order: Pick<Order, 'quantity' | 'unitPrice' | 'deliveryFee' | 'items'>): number {
+  const subtotal = order.items?.length ? order.items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0) : order.quantity * order.unitPrice;
+  return subtotal + order.deliveryFee;
+}
 export function orderNumber(order: Pick<Order, 'id' | 'orderNumber'>): string {
   if (order.orderNumber && /^(?:[A-Z]{2}\d{3}|\d{12})$/.test(order.orderNumber)) return order.orderNumber;
   return (BigInt(`0x${order.id.replaceAll('-', '')}`) % 1000000000000n).toString().padStart(12, '0');

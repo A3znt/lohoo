@@ -8,9 +8,12 @@ export const confirmationTemplate = `السلام عليكم $1، ركن للأ�
 شكراً لثقتك في ركن.`;
 
 export function confirmationFields(order) {
+  const items = Array.isArray(order.items) && order.items.length ? order.items : [order];
   const suffix = ' - ' + order.sku;
-  const product = order.sku && order.product.endsWith(suffix) ? order.product.slice(0, -suffix.length) : order.product;
-  return { $1:order.customer, $2:product, $3:String(Number((order.quantity * order.unitPrice + order.deliveryFee).toFixed(2))), $4:order.city, $5:order.area, $6:order.shipmentReference };
+  const first = order.sku && order.product.endsWith(suffix) ? order.product.slice(0, -suffix.length) : order.product;
+  const product = items.length > 1 ? `${first} + ${items.length - 1} منتج` : first;
+  const subtotal = items.reduce((sum, item) => sum + Number(item.quantity || 0) * Number(item.unitPrice || 0), 0);
+  return { $1:order.customer, $2:product, $3:String(Number((subtotal + order.deliveryFee).toFixed(2))), $4:order.city, $5:order.area, $6:order.shipmentReference };
 }
 export function confirmationText(order) {
   const fields = confirmationFields(order);
