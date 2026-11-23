@@ -74,6 +74,9 @@ export function validateOrder(input) {
   if (new Set([result.phone, ...result.additionalPhones]).size !== result.additionalPhones.length + 1) {
     throw new Error('أرقام الهاتف يجب أن تكون مختلفة.');
   }
+  const method = input.paymentMethod ?? 'كاش';
+  if (typeof method !== 'string' || !method.trim() || method.trim().length > 50 || /[\r\n]/.test(method)) throw new Error('أدخل اسم طريقة الدفع حتى 50 حرفًا.');
+  result.paymentMethod = method.trim();
   result.source = input.source === 'instagram' ? 'instagram' : 'facebook';
   result.notes = String(input.notes || '').trim().slice(0, 500);
   const rawItems = Array.isArray(input.items) && input.items.length ? input.items : [input];
@@ -115,6 +118,8 @@ export function orderNumberFromId(id) {
 export function shipmentNotes(order) {
   const enteredBy = String(order.createdByName || 'غير مسجل').trim().slice(0, 80);
   return [`رقم الطلب: ${order.orderNumber || orderNumberFromId(order.id)}`, `أُدخل بواسطة: ${enteredBy}`,
+    `طريقة الدفع: ${order.paymentMethod || 'كاش'}`,
+    ...(order.paid > 0 ? [`محصّل مسبقًا: ${order.paid} د.ل، المتبقي عند التسجيل: ${Number(Math.max(0, productSubtotal(order) + order.deliveryFee - order.paid).toFixed(2))} د.ل`] : []),
     ...(Number(order.weightKg) > 0 ? [`الوزن التقريبي: ${Number(order.weightKg)} كجم`] : []),
     ...(order.notes ? [`ملاحظات: ${String(order.notes).trim()}`] : [])].join(' | ').slice(0, 500);
 }

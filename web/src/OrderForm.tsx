@@ -4,12 +4,12 @@ import { api, money, orderTotal, type Actor, type AgentSummary, type OrderInput,
 
 interface Location { city: string; areas: string[] }
 interface Quote { serviceId: string; deliveryFee: number; components: { label: string; amount: number }[] }
-interface Props { initial?: OrderInput; carrierEdit?: boolean; onClose: () => void; onCreate: (order: OrderInput) => void; busy: boolean; defaultServiceId: string; agents: AgentSummary[]; actor: Actor }
+interface Props { knownOrders?: { phone: string; additionalPhones?: string[] }[]; initial?: OrderInput; carrierEdit?: boolean; onClose: () => void; onCreate: (order: OrderInput) => void; busy: boolean; defaultServiceId: string; agents: AgentSummary[]; actor: Actor }
 type Catalog = { locations: Location[]; packages: Package[]; products: WarehouseProduct[] };
 let catalogCache: { value: Catalog; expiresAt: number } | null = null;
 const cachedCatalog = () => catalogCache && catalogCache.expiresAt > Date.now() ? catalogCache.value : null;
 
-export default function OrderForm({ initial, carrierEdit = false, onClose, onCreate, busy, defaultServiceId, agents, actor }: Props) {
+export default function OrderForm({ initial, knownOrders = [], carrierEdit = false, onClose, onCreate, busy, defaultServiceId, agents, actor }: Props) {
   const [form, setForm] = useState<OrderInput>(() => {
     const base: OrderInput = initial ?? { id: crypto.randomUUID(), source: 'facebook', customer: '', phone: '', additionalPhones: [], city: '', area: '', address: '', product: '', warehouseProductId: '', warehouseVariantId: '', quantity: 1, unitPrice: 0, deliveryFee: 0, paid: 0, weightKg: 0, notes: '', serviceId: defaultServiceId };
     return { ...base, items: base.items?.length ? base.items : [{ product: base.product, quantity: base.quantity,
@@ -29,6 +29,8 @@ export default function OrderForm({ initial, carrierEdit = false, onClose, onCre
   const [areaQuery, setAreaQuery] = useState('');
   const [quoteAttempt, setQuoteAttempt] = useState(0);
   const set = <K extends keyof OrderInput>(key: K, value: OrderInput[K]) => setForm((old) => ({ ...old, [key]: value }));
+  const [customMethod, setCustomMethod] = useState(Boolean(initial?.paymentMethod && !['كاش', 'حوالة'].includes(initial.paymentMethod)));
+  const method = form.paymentMethod ?? 'كاش';
   const items = form.items || [];
   function updateItem(index: number, patch: Partial<OrderItem>) {
     setForm((old) => {
@@ -57,8 +59,8 @@ export default function OrderForm({ initial, carrierEdit = false, onClose, onCre
   }
   useEffect(() => { void loadDarb(); }, []);
   const quoteInput = useMemo(() => JSON.stringify({ city: form.city, area: form.area,
-    address: form.address, items: form.items, serviceId: form.serviceId }),
-  [form.city, form.area, form.address, form.items, form.serviceId]);
+    address: form.address, paymentMethod: method, items: form.items, serviceId: form.serviceId }),
+  [form.city, form.area, form.address, form.items, form.serviceId, method]);
   const normalizedPhone = form.phone.replace(/[\s()+-]/g, '');
   const phoneValid = /^(?:0|218)(?:91|92|93|94)\d{7}$/.test(normalizedPhone);
   const extraPhones = form.additionalPhones || [];
@@ -70,7 +72,7 @@ export default function OrderForm({ initial, carrierEdit = false, onClose, onCre
     Number.isFinite(number) && number >= 0 && number <= 10000000);
   const quantityValid = items.length > 0 && items.length <= 8 && items.every((item) => Number.isInteger(item.quantity) && item.quantity >= 1 && item.quantity <= 10000);
   const serviceAvailable = packages.some((item) => item._id === form.serviceId && !item.attributes?.includes('deposit'));
-  const ready = Boolean(form.customer.trim() && phoneValid && extraPhonesValid && weightValid && form.city && form.area && form.address.trim() &&
+  const ready = Boolean(method.trim() && form.customer.trim() && phoneValid && extraPhonesValid && weightValid && form.city && form.area && form.address.trim() &&
     items.every((item) => { const product = products.find((row) => row.id === item.warehouseProductId);
       return product?.isPublished && !product.isBlocked && product.variants.some((variant) => variant.id === item.warehouseVariantId); }) && serviceAvailable &&
     quantityValid && amountValid && !loading && !loadError);
@@ -121,6 +123,7 @@ export default function OrderForm({ initial, carrierEdit = false, onClose, onCre
       <div className="form-section-title"><span>01</span><div><strong>الزبون والمصدر</strong><small>بيانات الطلب من محادثتك</small></div></div>
       <div className="source-picker"><button type="button" aria-pressed={form.source === 'facebook'} className={form.source === 'facebook' ? 'selected' : ''} onClick={() => set('source', 'facebook')}>فيسبوك</button><button type="button" aria-pressed={form.source === 'instagram'} className={form.source === 'instagram' ? 'selected' : ''} onClick={() => set('source', 'instagram')}>إنستغرام</button></div>
       <div className="field-grid"><label className="field">اسم الزبون<input value={form.customer} maxLength={160} onChange={(e) => set('customer', e.target.value)} placeholder="الاسم الكامل" /></label><label className="field">رقم الهاتف<input value={form.phone} onChange={(e) => set('phone', e.target.value)} placeholder="0912345678" type="tel" inputMode="tel" autoComplete="tel" dir="ltr" aria-invalid={Boolean(form.phone.trim() && !phoneValid)} />{form.phone.trim() && !phoneValid && <small className="field-hint-error">أدخل رقمًا ليبيًا مثل 0912345678 أو +218912345678</small>}</label></div>
+      {phoneValid && !initial && <small className="field-hint" role="status">{knownOrders.some(order => [order.phone, ...(order.additionalPhones || [])].includes(normalizedPhone.replace(/^0/, '218'))) ? 'سبق تسجيل طلب بهذا الرقم ضمن طلباتك' : 'رقم جديد ضمن طلباتك'}</small>}
       <div className="extra-phones"><div className="extra-phones-head"><strong>أرقام إضافية للزبون</strong><button type="button" className="btn ghost" disabled={extraPhones.length >= 4} onClick={() => set('additionalPhones', [...extraPhones, ''])}><Plus size={15} /> إضافة رقم</button></div><small>ستظهر كلها لدرّب السبيل كجهات اتصال. رسالة التأكيد تُرسل للرقم الأساسي فقط.</small>{extraPhones.map((number, index) => <div className="extra-phone-row" key={index}><input aria-label={`الرقم الإضافي ${index + 1}`} type="tel" inputMode="tel" dir="ltr" value={number} onChange={(e) => set('additionalPhones', extraPhones.map((old, offset) => offset === index ? e.target.value : old))} placeholder="0912345678" /><button type="button" className="btn ghost" aria-label={`حذف الرقم الإضافي ${index + 1}`} onClick={() => set('additionalPhones', extraPhones.filter((_, offset) => offset !== index))}><Trash2 size={16} /></button></div>)}{extraPhones.length > 0 && !extraPhonesValid && <small className="field-hint-error" role="alert">تأكد من صحة الأرقام الإضافية وعدم تكرارها.</small>}</div>
       {!initial && actor.role === 'admin' && <label className="field">المندوبة<select value={form.agentId || ''} onChange={(e) => set('agentId', e.target.value)}><option value="">بدون مندوبة</option>{agents.filter((a) => a.enabled).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</select></label>}
       <div className="form-section-title"><span>02</span><div><strong>العنوان من درب السبيل</strong><small>اختر مدينة ثم منطقة من القائمة المعتمدة</small></div></div>
@@ -144,14 +147,17 @@ export default function OrderForm({ initial, carrierEdit = false, onClose, onCre
       <div className="form-section-title"><span>04</span><div><strong>الحسابات والتوصيل</strong><small>راجع طريقة التوصيل والمبلغ قبل التأكيد</small></div></div>
       <label className="field">طريقة التوصيل<select value={form.serviceId || ''} disabled={loading} onChange={(e) => set('serviceId', e.target.value)}><option value="">اختر الخدمة</option>{packages.filter((item) => !item.attributes?.includes('deposit')).map((item) => <option key={item._id} value={item._id}>{item.title || item.name || item._id}</option>)}</select></label>
       {!loading && form.serviceId && !serviceAvailable && <p className="field-hint-error" role="alert">خدمة التوصيل المحفوظة لم تعد متاحة؛ اختر خدمة أخرى من درب السبيل.</p>}
-      <div className="payment-method-card"><strong>طريقة الدفع</strong><span>كاش عند الاستلام</span><small>تُحسب عمولة المندوبة في حسابها بعد تسليم الطلب، ولا تُضاف إلى سعر المنتجات.</small></div>
+      <div className="payment-method-card"><label className="field">طريقة الدفع<select value={customMethod ? 'other' : method} onChange={e => { const other = e.target.value === 'other'; setCustomMethod(other); set('paymentMethod', other ? '' : e.target.value); }}><option>كاش</option><option>حوالة</option><option value="other">طريقة أخرى</option></select></label>
+        {customMethod && <label className="field">اسم طريقة الدفع<input maxLength={50} value={method} onChange={e => set('paymentMethod', e.target.value)} placeholder="مثلاً محفظة إلكترونية" /></label>}<small>تُحسب عمولة المندوبة في حسابها بعد تسليم الطلب، ولا تُضاف إلى سعر المنتجات.</small></div>
       <label className="field">المحصّل من الزبون<input type="number" min="0" max={currentQuote ? total : 10000000} step="0.01" value={form.paid} aria-invalid={!collectionValid} onChange={(e) => set('paid', Number(e.target.value || 0))} /></label>
+      {currentQuote && <div className="source-picker"><button type="button" onClick={() => set('paid', 0)}>لم يدفع بعد</button><button type="button" onClick={() => set('paid', Number(total.toFixed(2)))}>دفع كامل المبلغ</button></div>}
       <label className="field">ملاحظات للمندوب وسائق الشحن<textarea value={form.notes} maxLength={500} rows={3} onChange={(e) => set('notes', e.target.value)} placeholder="مثال: اتصل قبل الوصول، والقطعة قابلة للمعاينة" /><small className="field-hint">تظهر في ملاحظات شحنة درب السبيل.</small></label>
       {(!quantityValid || !amountValid) && <p className="field-hint-error" role="alert">تحقّق من الكمية والمبالغ: الكمية عدد صحيح موجب، والمبالغ لا تقل عن صفر.</p>}
+      {currentQuote && collectionValid && <div className="payment-method-card" aria-live="polite"><strong>المتبقي على الزبون</strong><span>{money(Math.max(0,total - form.paid))}</span>{form.paid > 0 && <small>يصل المتبقي للسائق في الملاحظات. مبلغ التحصيل الآلي لدى درب السبيل يشمل كامل الطلب، فنسّق مع السائق قبل التحصيل.</small>}</div>}
       {!collectionValid && <p className="field-hint-error" role="alert">المبلغ المحصّل أكبر من إجمالي الطلب مع التوصيل.</p>}
       <div className={`quote-card ${currentQuote ? 'ready' : ''}`}><div><Truck size={19} /><span>سعر التوصيل من درب السبيل</span></div><strong>{currentQuote ? money(currentQuote.deliveryFee) : quoting ? 'جاري الحساب…' : 'أكمل البيانات'}</strong>{currentQuote?.components.map((item, index) => <div className="quote-part" key={index}><span>{item.label}</span><b>{money(item.amount)}</b></div>)}{currentQuote && <small><Check size={14} /> تم حساب السعر حسب المنتج والعنوان والخدمة</small>}{quoteError && <><p className="form-error"><CircleAlert size={16} />{quoteError}</p><button className="btn ghost" onClick={() => setQuoteAttempt((n) => n + 1)}><RefreshCw size={16} /> إعادة حساب السعر</button></>}</div>
       <div className="order-total-preview"><span>إجمالي الطلب مع التوصيل</span><strong>{currentQuote ? money(total) : '—'}</strong></div>
     </div>
-    <div className="drawer-footer"><button className="btn ghost" onClick={onClose}>إلغاء</button><button className="btn primary" disabled={busy || !currentQuote || quoting || !collectionValid} onClick={() => initial ? currentQuote && onCreate({ ...form, deliveryFee: currentQuote.deliveryFee }) : setConfirm(true)}>{carrierEdit ? 'تحديث درب السبيل وركن' : initial ? 'حفظ التعديل' : 'مراجعة وإنشاء الشحنة'} <ArrowLeft size={17} /></button></div>
-  </section>{confirm && currentQuote && <div className="confirm-layer"><div className="confirm-card" role="dialog" aria-modal="true" aria-label="تأكيد إنشاء الشحنة"><span className="confirm-icon"><Truck size={25} /></span><h3>تأكيد الشحنة</h3><p>سيُرسل طلب <strong>{form.customer}</strong> إلى درب السبيل، ثم رسالة التأكيد للزبون.</p><div className="confirm-items">{items.map((item, index) => <div key={index}><span>{item.product} × {item.quantity}</span><strong>{money(item.unitPrice * item.quantity)}</strong></div>)}</div><div className="confirm-details"><span>{form.city}، {form.area}</span><strong>{money(currentQuote?.deliveryFee || 0)} توصيل</strong></div><div className="confirm-details"><span>إجمالي الطلب</span><strong>{money(total)}</strong></div><div className="confirm-actions"><button className="btn ghost" onClick={() => setConfirm(false)}>مراجعة</button><button className="btn primary" disabled={busy} onClick={() => { setConfirm(false); onCreate({ ...form, deliveryFee: currentQuote?.deliveryFee || 0 }); }}>{busy ? 'جاري الإرسال…' : 'تأكيد وإرسال'}</button></div></div></div>}</div>;
+    <div className="drawer-footer"><button className="btn ghost" onClick={onClose}>إلغاء</button><button className="btn primary" disabled={busy || !method.trim() || !currentQuote || quoting || !collectionValid} onClick={() => initial ? currentQuote && onCreate({ ...form, deliveryFee: currentQuote.deliveryFee }) : setConfirm(true)}>{carrierEdit ? 'تحديث درب السبيل وركن' : initial ? 'حفظ التعديل' : 'مراجعة وإنشاء الشحنة'} <ArrowLeft size={17} /></button></div>
+  </section>{confirm && currentQuote && <div className="confirm-layer"><div className="confirm-card" role="dialog" aria-modal="true" aria-label="تأكيد إنشاء الشحنة"><span className="confirm-icon"><Truck size={25} /></span><h3>تأكيد الشحنة</h3><p>سيُرسل طلب <strong>{form.customer}</strong> إلى درب السبيل، ثم رسالة التأكيد للزبون.</p><div className="confirm-items">{items.map((item, index) => <div key={index}><span>{item.product} × {item.quantity}</span><strong>{money(item.unitPrice * item.quantity)}</strong></div>)}</div><div className="confirm-details"><span>{form.city}، {form.area}</span><strong>{money(currentQuote?.deliveryFee || 0)} توصيل</strong></div><div className="confirm-details"><span>إجمالي الطلب</span><strong>{money(total)}</strong></div><div className="confirm-details"><span>{method} · المتبقي</span><strong>{money(Math.max(0,total - form.paid))}</strong></div><div className="confirm-actions"><button className="btn ghost" onClick={() => setConfirm(false)}>مراجعة</button><button className="btn primary" disabled={busy} onClick={() => { setConfirm(false); onCreate({ ...form, deliveryFee: currentQuote?.deliveryFee || 0 }); }}>{busy ? 'جاري الإرسال…' : 'تأكيد وإرسال'}</button></div></div></div>}</div>;
 }
