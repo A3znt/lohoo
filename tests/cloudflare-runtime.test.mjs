@@ -159,6 +159,8 @@ test('admin sends private notifications to herself or agents, while agents canno
     assert.equal((await listNotifications(muna.id)).length, 1);
     assert.equal((await listNotifications(saja.id)).length, 1);
     assert.deepEqual((await call('bootstrap')).data.notifications.map((item) => item.title), ['تنبيه']);
+    assert.deepEqual((await call('notifications')).data.map((item) => item.title), ['تنبيه']);
+    assert.deepEqual((await call('notifications', {}, agentCookie)).data.map((item) => item.title), ['متابعة']);
     const own = (await listNotifications('admin'))[0];
     assert.equal((await call('markNotificationRead', { id: own.id }, agentCookie)).ok, false);
     assert.ok((await call('markNotificationRead', { id: own.id })).data.readAt);
@@ -170,6 +172,74 @@ test('admin sends private notifications to herself or agents, while agents canno
     assert.equal((await listNotifications(muna.id)).length, 3);
     assert.equal((await listNotifications(saja.id)).length, 2);
   });
+});
+
+test('an agent edit alerts the admin and the notification feed is private', async () => {
+  await withContext({ DB: fakeD1(), APP_TOKEN: 'fixture' }, async () => {
+    const agent = await createAgent({ name: 'منى', username: 'mona', password: 'Mona2026' });
+    const id = '11111111-1111-4111-8111-111111111111';
+    const updatedAt = '2026-11-23T08:00:00Z';
+    await ordersStore().setJSON(`orders/${id}`, { id, agentId: agent.id, orderNumber: '123456789012',
+      customer: 'زبون', status: 'delivered', notes: '', source: 'facebook', updatedAt, createdAt: updatedAt });
+    const cookie = agentSessionCookie(await loginAgent('mona', 'Mona2026')).split(';')[0];
+    const call = async (action, data = {}, asAgent = false) => {
+      const response = await ordersApi(new Request('https://rukn.example/api/orders', { method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(asAgent ? { Cookie: cookie } : { Authorization: 'Bearer fixture' }) },
+        body: JSON.stringify({ action, ...data }) }));
+      return response.json();
+    };
+    assert.equal((await call('editOrder', { id, version: updatedAt, order: { notes: 'اتصل قبل التسليم', source: 'instagram' } }, true)).ok, true);
+    const notices = (await call('notifications')).data;
+    assert.equal(notices.length, 1);
+    assert.equal(notices[0].orderId, id);
+    assert.match(notices[0].body, /منى/);
+    assert.deepEqual((await call('notifications', {}, true)).data, []);
+  });
+});
+
+test('a confirmed agent order alerts the admin once with its carrier code', async () => {
+  const previousFetch = globalThis.fetch;
+  const productId = 'aaaaaaaaaaaaaaaaaaaaaaaa';
+  const variantId = 'bbbbbbbbbbbbbbbbbbbbbbbb';
+  globalThis.fetch = async (url) => {
+    const path = new URL(url).pathname;
+    if (path === '/api/local/branches/public') return Response.json({ status: true, data: { results: [
+      { countryCode: 'lby', city: 'طرابلس', area: 'عين زارة' }] } });
+    if (path === `/api/warehouse/products/${productId}`) return Response.json({ status: true, data: { results: [
+      { _id: productId, productName: 'طاولة كومبو', salePrice: 350, isPublished: true, isBlocked: false,
+        variants: [{ _id: variantId, sku: 'COMBO' }] }] } });
+    if (path === '/api/local/shipments/calculate/shipping/') return Response.json({ status: true, data: {
+      invoices: [{ items: [{ type: 'shipping', currency: 'lyd', amount: 15, quantity: 1 }] }] } });
+    if (path === '/api/contacts/') return Response.json({ status: true, data: { _id: 'cccccccccccccccccccccccc' } });
+    if (path === '/api/local/shipments/') return Response.json({ status: true, data: {
+      _id: 'dddddddddddddddddddddddd', reference: '2384360', status: 'pending' } });
+    throw new Error(`Unexpected Darb request ${path}`);
+  };
+  try {
+    await withContext({ DB: fakeD1(), APP_TOKEN: 'fixture', DARB_API_KEY: 'fixture', DARB_ACCOUNT_ID: 'fixture' }, async () => {
+      await ordersStore().setJSON('settings/default', { serviceId: 'service-1', autoMessages: false });
+      const agent = await createAgent({ name: 'منى', username: 'mona', password: 'Mona2026' });
+      const cookie = agentSessionCookie(await loginAgent('mona', 'Mona2026')).split(';')[0];
+      const order = { id: '11111111-1111-4111-8111-111111111111', customer: 'زبون', phone: '0912345678',
+        city: 'طرابلس', area: 'عين زارة', address: 'شارع 1', product: 'طاولة كومبو',
+        quantity: 1, unitPrice: 350, deliveryFee: 15, paid: 0, notes: '', source: 'facebook',
+        warehouseProductId: productId, warehouseVariantId: variantId };
+      const create = async () => {
+        const response = await ordersApi(new Request('https://rukn.example/api/orders', { method: 'POST',
+          headers: { Cookie: cookie, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'createOrder', order }) }));
+        return response.json();
+      };
+      assert.equal((await create()).data.status, 'confirmed');
+      assert.equal((await create()).ok, true);
+      const alerts = await listNotifications('admin');
+      assert.equal(alerts.length, 1);
+      assert.match(alerts[0].title, /منى.*طلبًا/);
+      assert.match(alerts[0].body, /2384360/);
+      assert.equal(alerts[0].orderId, order.id);
+      assert.deepEqual(await listNotifications(agent.id), []);
+    });
+  } finally { globalThis.fetch = previousFetch; }
 });
 
 test('an agent can retry only their failed SMS, and a successful send cannot be duplicated', async () => {
@@ -548,6 +618,7 @@ test('Darb postponement, failed delivery and cancellation notify only the respon
       status = 'pending'; reason = '';
       await syncOrder(id);
       assert.equal((await ordersStore().get(`orders/${id}`)).status, 'confirmed');
+      assert.equal((await listNotifications('admin')).filter((item) => item.kind === 'carrier_status').length, 1);
       status = 'undelivered'; reason = 'تعذر التواصل مع الزبون';
       await syncOrder(id);
       notices = await listNotifications(muna);
@@ -557,7 +628,7 @@ test('Darb postponement, failed delivery and cancellation notify only the respon
       await syncOrder(id);
       notices = await listNotifications(muna);
       assert.equal(notices.length, 3);
-      assert.equal((await listNotifications('admin')).length, 3);
+      assert.equal((await listNotifications('admin')).length, 4);
       assert.equal((await ordersStore().get(`orders/${id}`)).status, 'cancelled');
     });
   } finally { globalThis.fetch = previousFetch; }
@@ -629,7 +700,7 @@ test('admin order alert and morning digest are idempotent and use Tripoli time',
     assert.equal(notices.length, 2);
     assert.match(notices.find((item) => item.kind === 'daily_digest').body, /1 طلب جديد.*1 شحنة/);
     assert.match(notices.find((item) => item.kind === 'daily_digest').body, /1234567/);
-    assert.match(notices.find((item) => item.kind === 'daily_digest').body, /1 رسالة تحتاج شحن رصيد/);
+    assert.match(notices.find((item) => item.kind === 'daily_digest').body, /1 رسالة فشلت سابقًا بسبب الرصيد/);
     assert.match(notices.find((item) => item.kind === 'daily_digest').body, /1 رسالة تحتاج التحقق/);
   });
 });

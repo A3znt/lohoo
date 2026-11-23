@@ -11,6 +11,14 @@ function commissionSummary(orders) {
     earned, paid, due: Math.max(0, earned - paid) };
 }
 
+async function notifyAdminActivity(key, order, title, actorName) {
+  try {
+    await createAdminNotification(`${key}:${order.id}:${order.updatedAt}`, { kind: 'order_activity', orderId: order.id,
+      title: `${title} رقم ${order.orderNumber || order.id.slice(0, 8)}`,
+      body: `${order.customer} · بواسطة ${actorName}` });
+  } catch (error) { console.error('Order activity notification failed', order.id, error instanceof Error ? error.message : error); }
+}
+
 export default async function handler(request) {
   const actor = await getActor(request);
   if (!actor) return json({ ok: false, error: 'سجّل الدخول من جديد.' }, 401);
@@ -44,6 +52,8 @@ export default async function handler(request) {
       }
       case 'markNotificationRead':
         return json({ ok: true, data: await markNotificationRead(actor.id, input.id) });
+      case 'notifications':
+        return json({ ok: true, data: await listNotifications(actor.id) });
       case 'savePushSubscription':
         return json({ ok: true, data: await savePushSubscription(actor.id, input.subscription) });
       case 'removePushSubscription':
@@ -63,19 +73,27 @@ export default async function handler(request) {
         return json({ ok: true, data: (await listOrders()).filter(o => o.deletedAt) });
       case 'deleteOrder':
         requireAdmin();
-        return json({ ok: true, data: await removeOrder(input.id) });
+        {
+          const saved = await removeOrder(input.id);
+          await notifyAdminActivity('deleted', saved, 'حُذف الطلب', actor.name);
+          return json({ ok: true, data: saved });
+        }
       case 'restoreOrder': {
         requireAdmin();
         const { data, etag } = await requireOwnOrder(input.id);
         if (data.status === 'creating') throw new Error('انتظر اكتمال إنشاء الشحنة.');
-        return json({ ok: true, data: await updateOrder(input.id, { deletedAt: '' }, etag) });
+        const saved = await updateOrder(input.id, { deletedAt: '' }, etag);
+        await notifyAdminActivity('restored', saved, 'استُعيد الطلب', actor.name);
+        return json({ ok: true, data: saved });
       }
       case 'editOrder': {
         const { data, etag } = await requireOwnOrder(input.id);
         if (data.updatedAt !== input.version || data.deletedAt || data.status === 'creating') throw new Error('تغير الطلب. افتح تفاصيله مجددًا.');
         const form = input.order || {};
         if (data.shipmentReference && data.status === 'confirmed' && data.darbStatus === 'pending') {
-          return json({ ok: true, data: await editPendingShipment(input.id, form, input.version, isAdmin) });
+          const saved = await editPendingShipment(input.id, form, input.version, isAdmin);
+          await notifyAdminActivity('edited', saved, 'عُدّل الطلب', actor.name);
+          return json({ ok: true, data: saved });
         }
         const patch = { notes: String(form.notes || '').trim().slice(0, 500), source: form.source === 'instagram' ? 'instagram' : 'facebook' };
         if (data.status === 'attention' && !data.shipmentReference && /Unexpected property has been encountered!|Unable to fetch branch/.test(data.shippingError || '')) {
@@ -84,7 +102,9 @@ export default async function handler(request) {
           if (clean.customer !== data.customer || clean.phone !== data.phone) patch.contactId = '';
           if (!isAdmin) patch.paid = data.paid;
         }
-        return json({ ok: true, data: await updateOrder(input.id, patch, etag) });
+        const saved = await updateOrder(input.id, patch, etag);
+        await notifyAdminActivity('edited', saved, 'عُدّل الطلب', actor.name);
+        return json({ ok: true, data: saved });
       }
       case 'packages': {
         const data = await darb('GET', '/api/local/service/rates/public/');
@@ -109,8 +129,8 @@ export default async function handler(request) {
         if (!isAdmin && order.agentId !== actor.id) throw new Error('معرّف الطلب مستخدم. أنشئي طلبًا جديدًا.');
         try {
           await createAdminNotification(`new-order:${order.id}`, { kind: 'new_order', orderId: order.id,
-            title: `طلب جديد رقم ${order.orderNumber}`,
-            body: `${order.customer} · ${order.product} · أُدخل بواسطة ${order.createdByName}${order.status === 'attention' ? ' · يحتاج مراجعة الشحنة' : ''}` });
+            title: `${isAdmin ? 'سجّلت' : `${order.createdByName || 'المندوبة'} سجّلت`} طلبًا رقم ${order.orderNumber}`,
+            body: `${order.customer} · ${order.product}${order.shipmentReference ? ` · تأكد في درب السبيل برقم ${order.shipmentReference}` : ' · الشحنة تحتاج مراجعة'}` });
         } catch (error) { console.error('New order notification failed', order.id, error instanceof Error ? error.message : error); }
         return json({ ok: true, data: order });
       }
@@ -131,6 +151,9 @@ export default async function handler(request) {
         }
         if (input.status !== undefined) throw new Error('حالة الشحنة تأتي من درب السبيل. حدّث حالة الشحنة.');
         const saved = await updateOrder(input.id, patch);
+        if (patch.paid !== undefined && Number(entry.data.paid || 0) !== patch.paid) {
+          await notifyAdminActivity('collection', saved, 'تحدّث تحصيل الطلب', actor.name);
+        }
         return json({ ok: true, data: (await readOrder(input.id))?.data || saved });
       }
       case 'syncOrder': {
@@ -184,14 +207,18 @@ export default async function handler(request) {
         const agent = input.agentId ? await readAgent(input.agentId) : null;
         if (input.agentId && (!agent || !agent.enabled)) throw new Error('المندوبة المختارة غير متاحة.');
         if (entry.data.commissionEarnedAt && (agent?.id || '') !== entry.data.agentId) throw new Error('لا يمكن نقل الطلب بعد استحقاق العمولة.');
-        return json({ ok: true, data: await updateOrder(input.id, { agentId: agent?.id || '', agentName: agent?.name || '' }) });
+        const saved = await updateOrder(input.id, { agentId: agent?.id || '', agentName: agent?.name || '' });
+        await notifyAdminActivity('assigned', saved, 'تغيّرت مندوبة الطلب', actor.name);
+        return json({ ok: true, data: saved });
       }
       case 'payCommission': {
         requireAdmin();
         const entry = await requireOwnOrder(input.id);
         if (!entry.data.commissionEarnedAt || !entry.data.agentId) throw new Error('العمولة لا تُستحق إلا بعد التسليم.');
         if (entry.data.commissionPaidAt) throw new Error('هذه العمولة مسجلة كمدفوعة بالفعل.');
-        return json({ ok: true, data: await updateOrder(input.id, { commissionPaidAt: new Date().toISOString() }) });
+        const saved = await updateOrder(input.id, { commissionPaidAt: new Date().toISOString() });
+        await notifyAdminActivity('commission', saved, 'صُرفت عمولة الطلب', actor.name);
+        return json({ ok: true, data: saved });
       }
       case 'payAgentCommissions': {
         requireAdmin();
@@ -202,7 +229,8 @@ export default async function handler(request) {
         let count = 0;
         let amount = 0;
         for (const order of unpaid) {
-          await updateOrder(order.id, { commissionPaidAt: new Date().toISOString() });
+          const saved = await updateOrder(order.id, { commissionPaidAt: new Date().toISOString() });
+          await notifyAdminActivity('commission', saved, 'صُرفت عمولة الطلب', actor.name);
           count += 1;
           amount += Number(order.commissionAmount || 0);
         }

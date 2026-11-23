@@ -1,4 +1,4 @@
-const CACHE = 'rukn-static-v7';
+const CACHE = 'rukn-static-v8';
 self.addEventListener('install', (event) => event.waitUntil(caches.open(CACHE).then((cache) => cache.add('/')).then(() => self.skipWaiting())));
 self.addEventListener('activate', (event) => event.waitUntil(Promise.all([
   caches.keys().then((keys) => Promise.all(keys.filter((key) => (key.startsWith('daftar-static-') || key.startsWith('rukn-static-')) && key !== CACHE).map((key) => caches.delete(key)))),

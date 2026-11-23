@@ -49,6 +49,6 @@ export async function maybeSendMorningDigest(now = new Date()) {
   const title = `ملخص صباح ${date}`;
   const codes = recent.slice(0, 4).map((order) => order.orderNumber).filter(Boolean);
   const summary = codes.length ? ` أرقامها: ${codes.join('، ')}${recent.length > codes.length ? ' وغيرها' : ''}.` : '';
-  const body = `${recent.length} طلب جديد خلال آخر 24 ساعة.${summary} ${outstanding} شحنة تنتظر فحصك اليوم في درب السبيل.${smsCreditFailures ? ` ${smsCreditFailures} رسالة تحتاج شحن رصيد رِسالة ثم إعادة إرسال.` : ''}${uncertainSms ? ` ${uncertainSms} رسالة تحتاج التحقق من سجل رِسالة.` : ''}`;
+  const body = `${recent.length} طلب جديد خلال آخر 24 ساعة.${summary} ${outstanding} شحنة تنتظر فحصك اليوم في درب السبيل.${smsCreditFailures ? ` ${smsCreditFailures} رسالة فشلت سابقًا بسبب الرصيد؛ راجع شحناتها قبل الإعادة.` : ''}${uncertainSms ? ` ${uncertainSms} رسالة تحتاج التحقق من سجل رِسالة.` : ''}`;
   return createAdminNotification(`morning:${date}`, { kind: 'daily_digest', title, body });
 }

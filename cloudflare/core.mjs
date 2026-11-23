@@ -578,10 +578,18 @@ export async function syncOrder(id, { requireFound = false } = {}) {
     }
     return latest;
   }
-  await updateOrder(id, updates, entry.etag);
+  const saved = await updateOrder(id, updates, entry.etag);
   if (event && (updates.status || updates.carrierReason !== undefined)) {
     try { await createCarrierNotification({ ...latest, ...updates }, event); }
     catch (error) { console.error(JSON.stringify({ event: 'notification_failed', message: String(error) })); }
+  }
+  if (updates.status && ['on_way', 'delivered', 'returned', 'confirmed'].includes(updates.status)) {
+    const titles = { on_way: 'الطلب في الطريق', delivered: 'تم تسليم الطلب', returned: 'الطلب مرتجع', confirmed: 'استؤنف الطلب' };
+    try {
+      await createAdminNotification(`carrier-status:${id}:${saved.updatedAt}`, { kind: 'carrier_status', orderId: id,
+        title: `${titles[updates.status]} رقم ${saved.orderNumber || orderNumberFromId(id)}`,
+        body: `${saved.customer} · درب السبيل ${saved.shipmentReference} · أُدخل بواسطة ${saved.createdByName || 'المدير'}` });
+    } catch (error) { console.error('Carrier status notification failed', id, error instanceof Error ? error.message : error); }
   }
   if (updates.status === 'on_way' && (await settings()).autoMessages) await sendStageSms(id, 'onWay');
   return (await readOrder(id))?.data;

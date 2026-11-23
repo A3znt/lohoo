@@ -71,6 +71,7 @@ function App() {
   const [syncError, setSyncError] = useState('');
   const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
   const refreshRequest = useRef(0);
+  const knownNotificationIds = useRef(new Set<string>());
 
   const refresh = async () => {
     const requestId = ++refreshRequest.current;
@@ -78,6 +79,7 @@ function App() {
     try {
       const next = await api<Bootstrap>('bootstrap');
       if (requestId === refreshRequest.current) {
+        knownNotificationIds.current = new Set(next.notifications.map((item) => item.id));
         setData(next);
         setSyncError('');
         setLastSyncedAt(new Date());
@@ -97,6 +99,7 @@ function App() {
   };
   function clearSessionData() {
     refreshRequest.current += 1;
+    knownNotificationIds.current.clear();
     setData(emptyBootstrap());
     setLastSyncedAt(null);
     setSyncError('');
@@ -132,6 +135,29 @@ function App() {
   useEffect(() => { void checkSession(); }, []);
   useEffect(() => { if (!toast) return; const timer = window.setTimeout(() => setToast(''), 5000); return () => window.clearTimeout(timer); }, [toast]);
   useEffect(() => { if (!authenticated) return; const timer = window.setInterval(() => refresh().catch(() => {}), 5 * 60_000); return () => window.clearInterval(timer); }, [authenticated]);
+  useEffect(() => {
+    if (!authenticated || !lastSyncedAt) return;
+    const actorId = data.actor.id;
+    let cancelled = false;
+    let polling = false;
+    const pollNotifications = async () => {
+      if (polling || document.visibilityState !== 'visible') return;
+      polling = true;
+      try {
+        const items = await api<NotificationRecord[]>('notifications');
+        if (cancelled) return;
+        const unseen = items.filter((item) => !knownNotificationIds.current.has(item.id));
+        knownNotificationIds.current = new Set(items.map((item) => item.id));
+        setData((current) => current.actor.id === actorId ? { ...current, notifications: items } : current);
+        if (unseen.length) setToast(unseen.length === 1 ? unseen[0].title : `${unseen.length} إشعارات جديدة في ركن`);
+      } catch { /* The next poll or full refresh will retry. */ }
+      finally { polling = false; }
+    };
+    const timer = window.setInterval(() => { void pollNotifications(); }, 15_000);
+    const onVisible = () => { if (document.visibilityState === 'visible') void pollNotifications(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => { cancelled = true; window.clearInterval(timer); document.removeEventListener('visibilitychange', onVisible); };
+  }, [authenticated, Boolean(lastSyncedAt), data.actor.id]);
   useEffect(() => {
     if (!authenticated) return;
     const onVisible = () => {
