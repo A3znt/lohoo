@@ -98,7 +98,7 @@ export default function App() {
 
   if (!ready) return <SafeAreaView style={s.root}><ActivityIndicator style={{ marginTop: 100 }} color="#17675e" /></SafeAreaView>;
   return <SafeAreaView style={s.root}>
-    <View style={s.header}><Text style={s.brand}>دفتر الطلبات</Text><Text style={s.caption}>فيسبوك · إنستغرام · درب السبيل</Text></View>
+    <View style={s.header}><Text style={s.brand}>ركن</Text><Text style={s.caption}>فيسبوك · إنستغرام · درب السبيل</Text></View>
     <ScrollView contentContainerStyle={s.body} keyboardShouldPersistTaps="handled">
       {page === 'home' && <>
         <Text style={s.title}>نظرة عامة</Text>

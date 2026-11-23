@@ -416,7 +416,7 @@ test('Cloudflare admin sessions use signed cookies and enforce same-origin mutat
   });
 });
 
-test('pending edits reach Darb before local save; missing shipments are never silently deleted', async () => {
+test('pending edits reach Darb before local save; absent shipments are archived only after a direct check', async () => {
   const id = '11111111-1111-4111-8111-111111111111';
   const productId = 'aaaaaaaaaaaaaaaaaaaaaaaa';
   const variantId = 'bbbbbbbbbbbbbbbbbbbbbbbb';
@@ -430,11 +430,14 @@ test('pending edits reach Darb before local save; missing shipments are never si
   const previousFetch = globalThis.fetch;
   let rejectPatch = false;
   let missing = false;
+  let directMissing = false;
   const calls = [];
   globalThis.fetch = async (url, init) => {
     const path = new URL(url).pathname;
     calls.push({ path, method: init.method, body: init.body && JSON.parse(init.body) });
     if (path === '/api/local/shipments/') return Response.json({ status: true, data: { results: missing ? [] : [{ _id: shipmentId, reference: original.shipmentReference, status: 'pending' }] } });
+    if (path === `/api/local/shipments/${shipmentId}` && init.method === 'GET') return Response.json({ status: true,
+      data: { results: directMissing ? [] : [{ _id: shipmentId, reference: 'DIFFERENT', status: 'pending' }] } });
     if (path === '/api/local/branches/public') return Response.json({ status: true, data: { results: [{ countryCode: 'lby', city: 'طرابلس', area: 'عين زارة' }] } });
     if (path === `/api/warehouse/products/${productId}`) return Response.json({ status: true, data: { results: [{ _id: productId, productName: 'منتج', salePrice: 25, isPublished: true, isBlocked: false, variants: [{ _id: variantId, sku: 'SKU' }] }] } });
     if (path === '/api/local/shipments/calculate/shipping/') return Response.json({ status: true, data: { invoices: [{ items: [{ type: 'shipping', currency: 'lyd', amount: 12, quantity: 1 }] }] } });
@@ -457,8 +460,61 @@ test('pending edits reach Darb before local save; missing shipments are never si
       assert.equal(patch.body.to.address, 'شارع 2');
       assert.match(patch.body.notes, /اتصل قبل الوصول/);
       missing = true;
-      await assert.rejects(removeOrder(id), /لم نحذف السجل/);
+      await assert.rejects(removeOrder(id), /بيانات مختلفة/);
       assert.equal((await store.get(`orders/${id}`)).deletedAt, undefined);
+      directMissing = true;
+      const archived = await removeOrder(id);
+      assert.ok(archived.deletedAt && archived.carrierDeletedAt);
+      assert.equal(archived.darbStatus, 'already_deleted');
+      assert.equal(calls.some((call) => call.method === 'DELETE'), false);
+    });
+  } finally { globalThis.fetch = previousFetch; }
+});
+
+test('missing Darb shipment becomes an attention item until the admin archives it', async () => {
+  const previousFetch = globalThis.fetch;
+  const paths = [];
+  globalThis.fetch = async (url) => {
+    paths.push(new URL(url).pathname);
+    return Response.json({ status: true, data: { results: [] } });
+  };
+  try {
+    await withContext({ DB: fakeD1(), DARB_API_KEY: 'fixture', DARB_ACCOUNT_ID: 'fixture' }, async () => {
+      const id = '11111111-1111-4111-8111-111111111111';
+      await ordersStore().setJSON(`orders/${id}`, { id, createdAt: '2026-11-23T00:00:00Z',
+        orderNumber: '123456789012', status: 'confirmed', darbStatus: 'pending',
+        shipmentReference: 'SH123456', shipmentId: 'aaaaaaaaaaaaaaaaaaaaaaaa' });
+      const missing = await syncOrder(id);
+      assert.equal(missing.status, 'attention');
+      assert.equal(missing.darbStatus, 'not_found');
+      assert.equal((await listNotifications('admin')).filter((item) => item.kind === 'order_attention').length, 1);
+      assert.deepEqual(paths, ['/api/local/shipments/', '/api/local/shipments/aaaaaaaaaaaaaaaaaaaaaaaa']);
+      const archived = await removeOrder(id);
+      assert.equal(archived.darbStatus, 'already_deleted');
+      assert.ok(archived.deletedAt);
+    });
+  } finally { globalThis.fetch = previousFetch; }
+});
+
+test('missing Darb shipment cannot trigger a stale confirmation SMS retry', async () => {
+  const previousFetch = globalThis.fetch;
+  let sends = 0;
+  globalThis.fetch = async (url) => {
+    if (String(url).includes('v2.sabil.ly')) return Response.json({ status: true, data: { results: [] } });
+    sends += 1;
+    throw new Error('Unexpected SMS send');
+  };
+  try {
+    await withContext({ DB: fakeD1(), APP_TOKEN: 'fixture', RESALA_API_KEY: 'fixture',
+      RESALA_CONFIRM_TEMPLATE_ID: 'template', DARB_API_KEY: 'fixture', DARB_ACCOUNT_ID: 'fixture' }, async () => {
+      const id = '11111111-1111-4111-8111-111111111111';
+      await ordersStore().setJSON(`orders/${id}`, { id, status: 'confirmed', darbStatus: 'pending',
+        shipmentReference: 'SH123456', phone: '218910001234', confirmationSms: 'failed' });
+      const response = await ordersApi(new Request('https://rukn.example/api/orders', { method: 'POST',
+        headers: { Authorization: 'Bearer fixture', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'retryMessage', id, stage: 'confirmation' }) }));
+      assert.equal((await response.json()).ok, false);
+      assert.equal(sends, 0);
     });
   } finally { globalThis.fetch = previousFetch; }
 });

@@ -338,7 +338,8 @@ export async function sendStageSms(id, stage) {
   const entry = await readOrder(id);
   if (!entry) throw new Error('الطلب غير موجود.');
   const order = entry.data;
-  if (order.carrierDeletedAt || !['pending', 'needs_key'].includes(order[field])) return order;
+  if (order.carrierDeletedAt || order.deletedAt || order.darbStatus === 'not_found' ||
+    !['pending', 'needs_key'].includes(order[field])) return order;
   const detailedId = env(stage === 'confirmation' ? 'RESALA_CONFIRM_DETAILED_TEMPLATE_ID' : 'RESALA_ON_WAY_DETAILED_TEMPLATE_ID');
   const addressTemplate = stage === 'confirmation' && env('RESALA_CONFIRM_ADDRESS_TEMPLATE_ID');
   const templateId = addressTemplate || detailedId || env(stage === 'confirmation' ? 'RESALA_CONFIRM_TEMPLATE_ID' : 'RESALA_ON_WAY_TEMPLATE_ID');
@@ -449,6 +450,29 @@ export function exactShipment(payload, reference) {
   return matches.length === 1 ? matches[0] : null;
 }
 
+async function findStoredShipment(order) {
+  const reference = String(order.shipmentReference || '');
+  const listed = await darb('GET', `/api/local/shipments/?reference=${encodeURIComponent(reference)}`);
+  const rows = Array.isArray(listed) ? listed : listed?.results;
+  if (!Array.isArray(rows)) throw new Error('درب السبيل لم يرجع قائمة شحنات واضحة. لم نغيّر الطلب.');
+  const matches = rows.filter((row) => String(row?.reference) === reference);
+  if (matches.length > 1 || (rows.length > 0 && matches.length !== 1)) {
+    throw new Error('تعذر مطابقة الشحنة في درب السبيل. لم نغيّر الطلب.');
+  }
+  let record = matches[0] || null;
+  if (!record && /^[a-f0-9]{24}$/i.test(order.shipmentId || '')) {
+    const detail = await darb('GET', `/api/local/shipments/${order.shipmentId}`);
+    const directRows = Array.isArray(detail) ? detail : detail?.results;
+    if (!Array.isArray(directRows)) throw new Error('درب السبيل لم يؤكد غياب الشحنة. لم نغيّر الطلب.');
+    if (directRows.length > 0) record = exactShipment(detail, reference);
+    if (directRows.length > 0 && !record) throw new Error('الشحنة ما زالت موجودة في درب السبيل ببيانات مختلفة. لم نغيّر الطلب.');
+  }
+  if (record && (!/^[a-f0-9]{24}$/i.test(record._id) || (order.shipmentId && record._id !== order.shipmentId))) {
+    throw new Error('معرّف الشحنة في درب السبيل لا يطابق طلب ركن. لم نغيّر الطلب.');
+  }
+  return record;
+}
+
 export async function editPendingShipment(id, form, expectedVersion, isAdmin) {
   const entry = await readOrder(id);
   if (!entry || entry.data.deletedAt || entry.data.status !== 'confirmed' || !entry.data.shipmentReference || entry.data.carrierDeletedAt) {
@@ -497,32 +521,32 @@ export async function removeOrder(id) {
     }
     return updateOrder(id, { deletedAt: new Date().toISOString() }, entry.etag);
   }
-  const reference = order.shipmentReference;
-  const result = await darb('GET', '/api/local/shipments/?reference=' + encodeURIComponent(reference));
-  if (Array.isArray(result?.results) && result.results.length === 0) {
-    throw new Error('الشحنة غير ظاهرة في قائمة درب السبيل الحالية. لم نحذف السجل؛ راجع الشحنة من لوحة الشركة.');
-  }
-  const record = exactShipment(result, reference);
-  if (!record || !/^[a-f0-9]{24}$/i.test(record._id) || (order.shipmentId && record._id !== order.shipmentId)) {
-    throw new Error('تعذر مطابقة الشحنة برقم التتبع في درب السبيل. راجع حالة الشحنة.');
-  }
-  await darb('DELETE', '/api/local/shipments/' + record._id);
+  const record = await findStoredShipment(order);
+  if (record) await darb('DELETE', '/api/local/shipments/' + record._id);
   const now = new Date().toISOString();
-  return updateOrder(id, { deletedAt: now, carrierDeletedAt: now, status: 'cancelled', darbStatus: 'deleted' });
+  return updateOrder(id, { deletedAt: now, carrierDeletedAt: now, status: 'cancelled',
+    darbStatus: record ? 'deleted' : 'already_deleted', shippingError: '' });
 }
 
 export async function syncOrder(id, { requireFound = false } = {}) {
   const entry = await readOrder(id);
   if (!entry?.data?.shipmentReference || !['confirmed', 'on_way', 'postponed', 'delivery_failed'].includes(entry.data.status)) return entry?.data || null;
-  const reference = encodeURIComponent(entry.data.shipmentReference);
-  const shipment = await darb('GET', `/api/local/shipments/?reference=${reference}`);
-  let record = exactShipment(shipment, entry.data.shipmentReference);
-  if (!record && /^[a-f0-9]{24}$/i.test(entry.data.shipmentId || '')) {
-    record = exactShipment(await darb('GET', `/api/local/shipments/${entry.data.shipmentId}`), entry.data.shipmentReference);
-  }
+  const record = await findStoredShipment(entry.data);
   const status = String(record?.status || '');
-  if (!status) {
+  if (!record) {
     if (requireFound) throw new Error('تعذر العثور على الشحنة في درب السبيل. لم نعتبرها مُراجَعة.');
+    if (entry.data.darbStatus === 'not_found') return entry.data;
+    const updated = await updateOrder(id, { status: 'attention', darbStatus: 'not_found',
+      shippingError: 'لم تعد الشحنة موجودة في درب السبيل. يمكنك حذف سجل الطلب من ركن بعد التحقق.' });
+    try {
+      await createAdminNotification(`missing-shipment:${id}`, { kind: 'order_attention', orderId: id,
+        title: `شحنة غير موجودة للطلب ${updated.orderNumber || orderNumberFromId(id)}`,
+        body: 'درب السبيل لم يجد الشحنة برقم التتبع أو معرّفها. راجع الطلب ثم احذف سجله من ركن إذا كانت محذوفة هناك.' });
+    } catch (error) { console.error('Missing shipment notification failed', id, error instanceof Error ? error.message : error); }
+    return updated;
+  }
+  if (!status) {
+    if (requireFound) throw new Error('درب السبيل لم يرجع حالة الشحنة. لم نعتبرها مُراجَعة.');
     return entry.data;
   }
   const latest = (await readOrder(id))?.data;
@@ -530,7 +554,7 @@ export async function syncOrder(id, { requireFound = false } = {}) {
   let event = carrierEvent(record);
   if (event && !event.reason) {
     try {
-      const timeline = await darb('GET', `/api/local/shipments/timeline/${reference}`);
+      const timeline = await darb('GET', `/api/local/shipments/timeline/${encodeURIComponent(entry.data.shipmentReference)}`);
       const rows = Array.isArray(timeline) ? timeline : timeline?.results;
       if (Array.isArray(rows)) event = carrierEvent({ ...record, timeline: rows }) || event;
     } catch { /* Some Darb accounts do not expose the timeline endpoint. */ }

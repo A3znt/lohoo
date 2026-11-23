@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "دفتر الطلبات",
-    "slug": "daftar-orders",
+    "name": "ركن",
+    "slug": "rukn",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",

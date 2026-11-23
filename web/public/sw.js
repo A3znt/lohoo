@@ -1,7 +1,7 @@
-const CACHE = 'daftar-static-v6';
+const CACHE = 'rukn-static-v7';
 self.addEventListener('install', (event) => event.waitUntil(caches.open(CACHE).then((cache) => cache.add('/')).then(() => self.skipWaiting())));
 self.addEventListener('activate', (event) => event.waitUntil(Promise.all([
-  caches.keys().then((keys) => Promise.all(keys.filter((key) => key.startsWith('daftar-static-') && key !== CACHE).map((key) => caches.delete(key)))),
+  caches.keys().then((keys) => Promise.all(keys.filter((key) => (key.startsWith('daftar-static-') || key.startsWith('rukn-static-')) && key !== CACHE).map((key) => caches.delete(key)))),
   self.clients.claim(),
 ])));
 self.addEventListener('fetch', (event) => {

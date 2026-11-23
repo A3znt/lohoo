@@ -143,12 +143,19 @@ export default async function handler(request) {
         return json({ ok: true, data: await retryShipment(input.id, input.destination || {}) });
       }
       case 'retryMessage': {
-        const entry = await requireOwnOrder(input.id);
+        let entry = await requireOwnOrder(input.id);
         const stage = input.stage === 'onWay' ? 'onWay' : 'confirmation';
         const field = stage === 'onWay' ? 'onWaySms' : 'confirmationSms';
-        if (!entry.data.shipmentReference || entry.data.carrierDeletedAt) throw new Error('لا يمكن إرسال رسالة قبل إنشاء الشحنة.');
+        if (!entry.data.shipmentReference || entry.data.carrierDeletedAt || entry.data.darbStatus === 'not_found') {
+          throw new Error('لا يمكن إرسال الرسالة؛ الشحنة غير موجودة حاليًا في درب السبيل.');
+        }
         if (stage === 'onWay' && !['on_way', 'delivered'].includes(entry.data.status)) throw new Error('رسالة الطريق متاحة بعد خروج الشحنة للتوصيل.');
         if (!['pending', 'needs_key', 'failed'].includes(entry.data[field])) throw new Error('راجع حالة الرسالة في رِسالة قبل محاولة ثانية؛ قد تكون وصلت بالفعل.');
+        if (env('DARB_API_KEY')) {
+          await syncOrder(input.id, { requireFound: true });
+          entry = await requireOwnOrder(input.id);
+          if (entry.data.carrierDeletedAt || entry.data.darbStatus === 'not_found') throw new Error('لا يمكن إرسال الرسالة؛ الشحنة غير موجودة حاليًا في درب السبيل.');
+        }
         if (entry.data[field] === 'failed') await updateOrder(input.id, { [field]: 'pending', [`${field}Error`]: '' }, entry.etag);
         return json({ ok: true, data: await sendStageSms(input.id, stage) });
       }
