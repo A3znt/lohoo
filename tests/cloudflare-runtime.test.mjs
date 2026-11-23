@@ -408,10 +408,10 @@ test('Cloudflare admin sessions use signed cookies and enforce same-origin mutat
     assert.equal(adminPasswordValid('wrong'), false);
     assert.equal(sessionCookie('wrong'), null);
     const cookie = sessionCookie(password).split(';')[0];
-    const request = (headers) => new Request('https://lohoo.example/api/orders', { headers });
+    const request = (headers) => new Request('https://rukn.example/api/orders', { headers });
     assert.equal(isAuthenticated(request({ Cookie: cookie })), true);
     assert.equal(isAuthenticated(request({ Cookie: cookie + 'x' })), false);
-    assert.equal(sameOrigin(request({ Origin: 'https://lohoo.example' })), true);
+    assert.equal(sameOrigin(request({ Origin: 'https://rukn.example' })), true);
     assert.equal(sameOrigin(request({ Origin: 'https://other.example' })), false);
   });
 });

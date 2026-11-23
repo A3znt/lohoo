@@ -10,7 +10,7 @@
       "supportsTablet": true
     },
     "android": {
-      "package": "ly.daftar.orders",
+      "package": "ly.rukn.orders",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/android-icon-foreground.png",

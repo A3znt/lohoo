@@ -10,7 +10,7 @@ const KEY = 'darb-assabil-settings';
 
 export async function loadDeliverySettings(): Promise<DeliverySettings> {
   const saved = await SecureStore.getItemAsync(KEY);
-  return saved ? JSON.parse(saved) as DeliverySettings : { baseUrl: 'https://daftar-orders-personal.netlify.app', appToken: '', serviceId: '' };
+  return saved ? JSON.parse(saved) as DeliverySettings : { baseUrl: 'https://daftar-orders-personal.daftar-orders-a3z.workers.dev', appToken: '', serviceId: '' };
 }
 
 export async function saveDeliverySettings(settings: DeliverySettings): Promise<void> {
