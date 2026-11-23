@@ -82,19 +82,37 @@ export async function removePushSubscription(agentId, endpoint) {
 
 async function sendPush(agentId, notification) {
   const vars = binding('VAPID_PRIVATE_KEY');
-  if (!vars || !binding('VAPID_PUBLIC_KEY')) return;
+  if (!vars || !binding('VAPID_PUBLIC_KEY')) return { configured: false, devices: 0, accepted: 0, rejected: 0 };
   const vapid = { subject: binding('VAPID_SUBJECT'), publicKey: binding('VAPID_PUBLIC_KEY'), privateKey: vars };
   const devices = (await ordersStore().listValues({ prefix: 'push/' })).map(({ value }) => value)
     .filter((item) => item?.agentId === agentId && item.subscription);
-  await Promise.all(devices.map(async (device) => {
+  const outcomes = await Promise.all(devices.map(async (device) => {
     try {
       const payload = await buildPushPayload({ data: JSON.stringify({ title: notification.title,
-        body: notification.body, url: '/?notifications=1', tag: notification.id }), options: { ttl: 3600 } }, device.subscription, vapid);
+        body: notification.body, url: '/?notifications=1', tag: notification.id }), options: { ttl: 3600, urgency: 'high' } }, device.subscription, vapid);
       const response = await fetch(device.subscription.endpoint, { ...payload, signal: AbortSignal.timeout(8000) });
       if (response.status === 404 || response.status === 410) await removePushSubscription(agentId, device.subscription.endpoint);
       else if (!response.ok) console.error(JSON.stringify({ event: 'push_rejected', status: response.status }));
-    } catch (error) { console.error(JSON.stringify({ event: 'push_failed', type: error?.name || 'Error' })); }
+      return response.ok;
+    } catch (error) { console.error(JSON.stringify({ event: 'push_failed', type: error?.name || 'Error' })); return false; }
   }));
+  const accepted = outcomes.filter(Boolean).length;
+  return { configured: true, devices: devices.length, accepted, rejected: devices.length - accepted };
+}
+
+export async function testPhonePush(agentId) {
+  if (!recipientValid(agentId)) throw new Error('الحساب غير صالح.');
+  const devices = (await ordersStore().listValues({ prefix: 'push/' })).filter(({ value }) => value?.agentId === agentId && value.subscription);
+  if (!devices.length) return { scheduled: false, devices: 0 };
+  const notification = { id: crypto.randomUUID(), title: 'اختبار إشعارات ركن',
+    body: 'وصل إشعار ركن والهاتف مغلق على التطبيق.' };
+  const execution = binding('__EXECUTION_CONTEXT');
+  if (!execution?.waitUntil) return sendPush(agentId, notification);
+  execution.waitUntil(new Promise((resolve) => setTimeout(resolve, 15_000)).then(async () => {
+    const result = await sendPush(agentId, notification);
+    console.log(JSON.stringify({ event: 'push_test_result', devices: result.devices, accepted: result.accepted, rejected: result.rejected }));
+  }));
+  return { scheduled: true, devices: devices.length };
 }
 
 async function dispatchPush(agentId, notification) {

@@ -10,6 +10,7 @@ interface Props {
   onClose: () => void;
   onEnablePhone: () => void;
   onDisablePhone: () => void;
+  onTestPhone: () => Promise<void>;
   onOpen: (item: NotificationRecord) => void;
   onRead: (item: NotificationRecord) => void;
   actor: Actor;
@@ -18,7 +19,7 @@ interface Props {
 }
 
 export default function NotificationsPanel({ items, phoneSupported, phoneEnabled, busy, onClose,
-  onEnablePhone, onDisablePhone, onOpen, onRead, actor, agents, onSend }: Props) {
+  onEnablePhone, onDisablePhone, onTestPhone, onOpen, onRead, actor, agents, onSend }: Props) {
   const unread = items.filter((item) => !item.readAt).length;
   const [recipient, setRecipient] = useState('all');
   const [title, setTitle] = useState('');
@@ -36,7 +37,7 @@ export default function NotificationsPanel({ items, phoneSupported, phoneEnabled
     <section className="drawer notification-drawer" role="dialog" aria-modal="true" aria-label="إشعارات ركن">
       <div className="drawer-head"><div><span className="overline">تحديثات ركن</span><h2>الإشعارات {unread > 0 && <span className="notification-count">{unread}</span>}</h2></div><button className="icon-button" onClick={onClose} aria-label="إغلاق"><X size={21} /></button></div>
       <div className="drawer-body">
-        <div className="phone-push-card"><div className="phone-push-icon"><Bell size={20} /></div><div><strong>إشعارات الهاتف</strong><p>{phoneEnabled ? 'مفعّلة على هذا الجهاز، وتصل حتى لو ركن مقفول.' : phoneSupported ? 'فعّلها لتصلك الإشعارات حتى لو ركن مقفول.' : 'المتصفح الحالي لا يدعم إشعارات الهاتف؛ الإشعارات داخل ركن تظل متاحة.'}</p></div>{phoneSupported && <button className="btn ghost" disabled={busy} onClick={phoneEnabled ? onDisablePhone : onEnablePhone}>{phoneEnabled ? <><BellOff size={16} /> إيقاف</> : <><Bell size={16} /> تفعيل</>}</button>}</div>
+        <div className="phone-push-card"><div className="phone-push-icon"><Bell size={20} /></div><div><strong>إشعارات الهاتف</strong><p>{phoneEnabled ? 'مفعّلة على هذا الجهاز. اختبر وصولها بعد إغلاق ركن.' : phoneSupported ? 'فعّلها لتصلك الإشعارات حتى لو ركن مقفول. تأكد أيضًا من السماح لإشعارات المتصفح في إعدادات الهاتف.' : 'المتصفح الحالي لا يدعم إشعارات الهاتف؛ الإشعارات داخل ركن تظل متاحة.'}</p>{phoneEnabled && <button className="btn ghost" disabled={busy} onClick={() => void onTestPhone()}><Bell size={15} /> اختبار بعد 15 ثانية</button>}</div>{phoneSupported && <button className="btn ghost" disabled={busy} onClick={phoneEnabled ? onDisablePhone : onEnablePhone}>{phoneEnabled ? <><BellOff size={16} /> إيقاف</> : <><Bell size={16} /> تفعيل</>}</button>}</div>
         {actor.role === 'admin' && <form className="notification-compose" onSubmit={(event) => { event.preventDefault(); void send(); }}><h3>إرسال إشعار</h3><p>يظهر داخل ركن، ويصل للهاتف إذا فعّل المستلم الإشعارات عليه.</p><label>المستلم<select value={recipient} onChange={(event) => setRecipient(event.target.value)}><option value="all">كل المندوبات</option><option value="team">الجميع، وأنا أيضًا</option><option value="admin">أنا فقط</option>{agents.filter((agent) => agent.enabled).map((agent) => <option key={agent.id} value={agent.id}>{agent.name}</option>)}</select></label><label>العنوان<input value={title} maxLength={80} onChange={(event) => setTitle(event.target.value)} placeholder="مثال: تحديث مهم" required /></label><label>الرسالة<textarea value={body} maxLength={500} rows={3} onChange={(event) => setBody(event.target.value)} placeholder="اكتب نص الإشعار هنا" required /></label><button className="btn primary" type="submit" disabled={busy || sending || !title.trim() || !body.trim()}><Send size={16} /> {sending ? 'جاري الإرسال…' : 'إرسال الإشعار'}</button></form>}
         {items.length ? <div className="notification-list">{items.map((item) => <article key={item.id} className={`notification-item ${item.readAt ? '' : 'unread'}`}><div className="notification-symbol">{item.kind === 'manual' || item.kind === 'daily_digest' ? <Bell size={17} /> : item.kind === 'sms_alert' ? <MessageCircle size={17} /> : <Truck size={17} />}</div><div className="notification-content"><div className="notification-title"><strong>{item.title}</strong>{!item.readAt && <i aria-label="غير مقروء" />}</div><p>{item.body}</p><small>{new Intl.DateTimeFormat('ar-LY', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }).format(new Date(item.createdAt))}</small><div className="notification-actions">{(item.orderId || item.kind === 'daily_digest') && <button className="btn ghost" disabled={busy} onClick={() => onOpen(item)}>{item.kind === 'daily_digest' ? 'فتح قائمة المتابعة' : 'فتح الطلب'}</button>}{!item.readAt && <button className="btn ghost" disabled={busy} onClick={() => onRead(item)}><Check size={15} /> تم الاطلاع</button>}</div></div></article>)}</div> : <div className="notification-empty"><CircleAlert size={25} /><strong>ما عندكش إشعارات حاليًا</strong><p>إشعارات الطلبات والرسائل الجديدة ستظهر هنا.</p></div>}
       </div>

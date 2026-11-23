@@ -675,6 +675,7 @@ test('a new carrier notification sends an encrypted web push to the subscribed a
       assert.equal(sent.url, subscription.endpoint);
       assert.equal(sent.options.method.toUpperCase(), 'POST');
       assert.match(String(sent.options.headers.authorization), /^vapid /);
+      assert.equal(sent.options.headers.urgency, 'high');
       assert.ok(sent.options.body.byteLength > 0);
       assert.equal((await listNotifications(agentId)).length, 1);
     });

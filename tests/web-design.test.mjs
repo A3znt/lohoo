@@ -36,7 +36,7 @@ test('standalone web app colors match browser theme and refresh offline cache', 
   assert.equal(manifest.short_name, 'ركن');
   assert.match(html, /name="theme-color" content="#211e1b"/);
   assert.match(html, /<title>ركن/);
-  assert.match(worker, /rukn-static-v8/);
+  assert.match(worker, /rukn-static-v9/);
   assert.equal(manifest.dir, 'rtl');
 });
 

@@ -204,6 +204,7 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
 .phone-push-card>div:nth-child(2){flex:1;min-width:0}
 .phone-push-card strong{display:block;color:#493722;font-size:13px}
 .phone-push-card p{margin:5px 0 0;color:#806c50;font-size:11px;line-height:1.7}
+.phone-push-card>div:nth-child(2)>.btn{margin-top:10px}
 .phone-push-card .btn{flex:none;padding:8px 10px;font-size:11px}
 .phone-push-icon,.notification-symbol{display:grid;place-items:center;flex:none;width:36px;height:36px;border-radius:11px;background:#ead9bc;color:#8b6737}
 .notification-list{display:grid;gap:10px}

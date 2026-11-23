@@ -1,4 +1,4 @@
-const CACHE = 'rukn-static-v8';
+const CACHE = 'rukn-static-v9';
 self.addEventListener('install', (event) => event.waitUntil(caches.open(CACHE).then((cache) => cache.add('/')).then(() => self.skipWaiting())));
 self.addEventListener('activate', (event) => event.waitUntil(Promise.all([
   caches.keys().then((keys) => Promise.all(keys.filter((key) => (key.startsWith('daftar-static-') || key.startsWith('rukn-static-')) && key !== CACHE).map((key) => caches.delete(key)))),
@@ -27,7 +27,7 @@ self.addEventListener('push', (event) => {
   const body = typeof message.body === 'string' ? message.body : 'لديك تحديث جديد على طلبية.';
   event.waitUntil(self.registration.showNotification(title, {
     body, icon: '/icon-192.png', badge: '/icon-192.png', tag: String(message.tag || 'rukn-update'),
-    data: { url: '/?notifications=1' }, dir: 'rtl', lang: 'ar',
+    data: { url: '/?notifications=1' }, dir: 'rtl', lang: 'ar', renotify: true, vibrate: [180, 80, 180],
   }));
 });
 self.addEventListener('notificationclick', (event) => {

@@ -1,7 +1,7 @@
 import { removeOrder, createOrder, darb, editPendingShipment, ensureValidCollection, env, json, listDeliveryLocations, listOrders, listWarehouseProducts, quoteOrder, readOrder, resalaReady, retryShipment, sameOrigin, shippingComponents, syncSmsDelivery,
   saveSettings, sendStageSms, settings, syncOrder, updateOrder } from './core.mjs';
 import { agentSessionCookie, changeOwnAgentPassword, createAgent, getActor, listAgents, publicAgent, readAgent, resetAgentPassword, setAgentEnabled, updateAgentProfile } from './team.mjs';
-import { createAdminNotification, createManualNotifications, listNotifications, markNotificationRead, removePushSubscription, savePushSubscription } from './notifications.mjs';
+import { createAdminNotification, createManualNotifications, listNotifications, markNotificationRead, removePushSubscription, savePushSubscription, testPhonePush } from './notifications.mjs';
 import { dailyReviewedIds, reviewShipment, tripoliClock } from './daily-review.mjs';
 
 function commissionSummary(orders) {
@@ -54,6 +54,8 @@ export default async function handler(request) {
         return json({ ok: true, data: await markNotificationRead(actor.id, input.id) });
       case 'notifications':
         return json({ ok: true, data: await listNotifications(actor.id) });
+      case 'testPhonePush':
+        return json({ ok: true, data: await testPhonePush(actor.id) });
       case 'savePushSubscription':
         return json({ ok: true, data: await savePushSubscription(actor.id, input.subscription) });
       case 'removePushSubscription':

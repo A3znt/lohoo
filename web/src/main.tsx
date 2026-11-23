@@ -174,8 +174,8 @@ function App() {
     let cancelled = false;
     void navigator.serviceWorker.ready.then((registration) => registration.pushManager.getSubscription()).then((subscription) => {
       if (cancelled) return;
-      setPhoneEnabled(Boolean(subscription));
-      if (subscription) void api('savePushSubscription', { subscription: subscription.toJSON() }).catch(() => {});
+      setPhoneEnabled(Boolean(subscription) && Notification.permission === 'granted');
+      if (subscription && Notification.permission === 'granted') void api('savePushSubscription', { subscription: subscription.toJSON() }).catch(() => {});
     }).catch(() => {});
     return () => { cancelled = true; };
   }, [authenticated, data.actor.id, phoneSupported]);
@@ -270,6 +270,16 @@ function App() {
       setPhoneEnabled(false);
       setToast('تم إيقاف إشعارات الهاتف على هذا الجهاز.');
     } catch (error) { setToast(error instanceof Error ? error.message : 'تعذر إيقاف إشعارات الهاتف.'); }
+    finally { setBusy(false); }
+  }
+  async function testPhoneNotifications() {
+    setBusy(true);
+    try {
+      const result = await api<{ scheduled?: boolean; devices: number; accepted?: number }>('testPhonePush');
+      if (!result.devices) setToast('هذا الجهاز غير مسجّل لإشعارات الهاتف. فعّلها مجددًا.');
+      else if (result.scheduled) setToast('اختبار بعد 15 ثانية: أقفل ركن الآن وتابع إشعارات الهاتف.');
+      else setToast(result.accepted ? 'قُبل إشعار الاختبار من خدمة الهاتف.' : 'تعذّر إرسال الاختبار؛ أعد تفعيل الإشعارات.');
+    } catch (error) { setToast(error instanceof Error ? error.message : 'تعذر اختبار إشعارات الهاتف.'); }
     finally { setBusy(false); }
   }
   async function markRead(item: NotificationRecord) {
@@ -452,7 +462,7 @@ function App() {
         }
       } catch { /* toast explains the error */ }
     }} busy={busy} actor={data.actor} agents={data.agents} resalaConfigured={data.resalaConfigured} />}
-    {notificationsOpen && <NotificationsPanel items={data.notifications} actor={data.actor} agents={data.agents} phoneSupported={phoneSupported} phoneEnabled={phoneEnabled} busy={busy} onClose={() => setNotificationsOpen(false)} onEnablePhone={() => void enablePhoneNotifications()} onDisablePhone={() => void disablePhoneNotifications()} onRead={(item) => void markRead(item)} onSend={async (recipient, title, body) => { const result = await action(() => api<{ count: number }>('sendNotification', { recipient, title, body })); setToast(`تم إرسال الإشعار إلى ${result.count} حساب.`); }} onOpen={(item) => { void markRead(item); setNotificationsOpen(false); if (item.kind === 'daily_digest') { navigate('overview'); return; } const order = data.orders.find((row) => row.id === item.orderId); if (order) setSelected(order); else setToast('هذه الطلبية لم تعد ضمن طلباتك الحالية.'); }} />}
+    {notificationsOpen && <NotificationsPanel items={data.notifications} actor={data.actor} agents={data.agents} phoneSupported={phoneSupported} phoneEnabled={phoneEnabled} busy={busy} onClose={() => setNotificationsOpen(false)} onEnablePhone={() => void enablePhoneNotifications()} onDisablePhone={() => void disablePhoneNotifications()} onTestPhone={() => testPhoneNotifications()} onRead={(item) => void markRead(item)} onSend={async (recipient, title, body) => { const result = await action(() => api<{ count: number }>('sendNotification', { recipient, title, body })); setToast(`تم إرسال الإشعار إلى ${result.count} حساب.`); }} onOpen={(item) => { void markRead(item); setNotificationsOpen(false); if (item.kind === 'daily_digest') { navigate('overview'); return; } const order = data.orders.find((row) => row.id === item.orderId); if (order) setSelected(order); else setToast('هذه الطلبية لم تعد ضمن طلباتك الحالية.'); }} />}
     {toast && <div className="toast" role="status" aria-live="polite"><Bell size={18} /><span>{toast}</span><button onClick={() => setToast('')} aria-label="إغلاق"><X size={15} /></button></div>}
   </div>;
 }
