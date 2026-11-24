@@ -1,3 +1,4 @@
+import { canCorrectShipment } from '../shared/shipment-recovery.mjs';
 import { removeOrder, createOrder, darb, editPendingShipment, ensureValidCollection, env, json, listDeliveryLocations, listOrders, listWarehouseProducts, quoteOrder, readOrder, resalaReady, retryShipment, sameOrigin, shippingComponents, syncSmsDelivery,
   saveSettings, sendStageSms, settings, syncOrder, updateOrder } from './core.mjs';
 import { agentSessionCookie, changeOwnAgentPassword, createAgent, getActor, listAgents, publicAgent, readAgent, resetAgentPassword, setAgentEnabled, updateAgentProfile } from './team.mjs';
@@ -104,7 +105,7 @@ export default async function handler(request) {
           return json({ ok: true, data: saved });
         }
         const patch = { notes: String(form.notes || '').trim().slice(0, 500), source: form.source === 'instagram' ? 'instagram' : 'facebook' };
-        if (data.status === 'attention' && !data.shipmentReference && /Unexpected property has been encountered!|Unable to fetch branch/.test(data.shippingError || '')) {
+        if (canCorrectShipment(data)) {
           const { clean, service, estimate, deliveryFee } = await quoteOrder({ ...data, ...form });
           Object.assign(patch, clean, { serviceId: service, deliveryFee, shippingPrice: estimate });
           if (clean.customer !== data.customer || clean.phone !== data.phone ||

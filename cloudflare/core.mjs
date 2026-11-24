@@ -1,3 +1,4 @@
+import { canCorrectShipment } from '../shared/shipment-recovery.mjs';
 import { confirmationFields } from '../shared/confirmation.mjs';
 import { createHmac, randomUUID, scryptSync, timingSafeEqual } from 'node:crypto';
 import { binding, ordersStore as getCloudflareStore } from './runtime.mjs';
@@ -67,6 +68,7 @@ export function validateOrder(input) {
     if (typeof input[key] !== 'string' || !input[key].trim()) throw new Error(`الحقل ${key} مطلوب.`);
     result[key] = input[key].trim().slice(0, 160);
   }
+  if (result.customer.length < 2) throw new Error('أدخل اسم الزبون الكامل.');
   result.phone = phone(input.phone);
   const extra = input.additionalPhones ?? [];
   if (!Array.isArray(extra) || extra.length > 4) throw new Error('يمكن إضافة حتى أربعة أرقام هاتف إضافية.');
@@ -321,6 +323,7 @@ export async function createOrder(input, assignedAgent = null, creator = null) {
 }
 async function submitShipment(id, clean, service, estimate, config) {
   const core = shipmentInput(clean, service);
+  let registeringContacts = true;
   try {
     const phones = [clean.phone, ...clean.additionalPhones];
     const stored = (await readOrder(id))?.data;
@@ -331,6 +334,7 @@ async function submitShipment(id, clean, service, estimate, config) {
       contactIds.push(contact._id);
       await updateOrder(id, { contactId: contactIds[0], contactIds });
     }
+    registeringContacts = false;
     let shipment;
     try {
       const order = (await readOrder(id))?.data;
@@ -348,13 +352,13 @@ async function submitShipment(id, clean, service, estimate, config) {
     }
     return (await readOrder(id))?.data || updated;
   } catch (error) {
-    return updateOrder(id, { status: 'attention', shippingError: error.message || 'تعذر إنشاء الشحنة.' });
+    return updateOrder(id, { status: 'attention', shippingError: registeringContacts ? 'تعذر تسجيل المستلم: ' + (error.message || 'تحقق من بيانات الزبون.') : error.message || 'تعذر إنشاء الشحنة.' });
   }
 }
 export async function retryShipment(id, destination = {}) {
   const entry = await readOrder(id);
   if (!entry || entry.data.status !== 'attention' || entry.data.shipmentReference) throw new Error('هذا الطلب غير متاح لإعادة الإرسال.');
-  if (!/Unexpected property has been encountered!|Unable to fetch branch/.test(entry.data.shippingError || '')) {
+  if (!canCorrectShipment(entry.data)) {
     throw new Error('حالة الشحنة غير مؤكدة. راجع درب السبيل قبل إعادة الإرسال.');
   }
   const input = { ...entry.data, city: destination.city || entry.data.city,
@@ -572,7 +576,7 @@ export async function removeOrder(id) {
   if (order.status === 'creating') throw new Error('انتظر اكتمال إنشاء الشحنة.');
   if (order.carrierDeletedAt) return updateOrder(id, { deletedAt: new Date().toISOString() });
   if (!order.shipmentReference) {
-    if (order.status !== 'attention' || !/Unexpected property has been encountered!|Unable to fetch branch/.test(order.shippingError || '')) {
+    if (!canCorrectShipment(order)) {
       throw new Error('تعذر تحديد الشحنة. راجع درب السبيل قبل الحذف.');
     }
     return updateOrder(id, { deletedAt: new Date().toISOString() }, entry.etag);
