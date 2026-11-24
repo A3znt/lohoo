@@ -366,8 +366,8 @@ export async function retryShipment(id, destination = {}) {
   const { clean, service, estimate, deliveryFee } = await quoteOrder(input);
   ensureValidCollection(entry.data.paid, clean.unitPrice, clean.quantity, deliveryFee, clean.items);
   clean.deliveryFee = deliveryFee;
-  await updateOrder(id, { status: 'creating', shippingError: '', city: clean.city, area: clean.area,
-    address: clean.address, deliveryFee, shippingPrice: estimate });
+  await updateOrder(id, { status: 'creating', readyToRetry: false, shippingError: '', city: clean.city, area: clean.area,
+    address: clean.address, deliveryFee, shippingPrice: estimate }, entry.etag);
   return submitShipment(id, clean, service, estimate, await settings());
 }
 export function smsTemplateRecord(order, stage, detailed = false) {

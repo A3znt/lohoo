@@ -107,7 +107,7 @@ export default async function handler(request) {
         const patch = { notes: String(form.notes || '').trim().slice(0, 500), source: form.source === 'instagram' ? 'instagram' : 'facebook' };
         if (canCorrectShipment(data)) {
           const { clean, service, estimate, deliveryFee } = await quoteOrder({ ...data, ...form });
-          Object.assign(patch, clean, { serviceId: service, deliveryFee, shippingPrice: estimate });
+          Object.assign(patch, clean, { serviceId: service, deliveryFee, shippingPrice: estimate, shippingError: '', readyToRetry: true });
           if (clean.customer !== data.customer || clean.phone !== data.phone ||
             JSON.stringify(clean.additionalPhones) !== JSON.stringify(data.additionalPhones || [])) {
             patch.contactId = '';

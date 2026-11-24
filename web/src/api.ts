@@ -10,7 +10,7 @@ export interface Order {
   widthCM?: number; heightCM?: number; lengthCM?: number;
   variantAttributes?: { key: string; value: string }[];
   notes: string; serviceId: string; status: OrderStatus; shipmentReference: string;
-  darbStatus: string; shippingPrice: unknown; shippingError: string;
+  darbStatus: string; shippingPrice: unknown; shippingError: string; readyToRetry?: boolean;
   carrierReason?: string;
   confirmationSms: SmsStatus; onWaySms: SmsStatus;
   confirmationSmsError?: string; onWaySmsError?: string;
