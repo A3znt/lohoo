@@ -8,7 +8,19 @@ test('Darb processing remains separate from out for delivery', () => {
 });
 import { generateKeyPairSync, scryptSync } from 'node:crypto';
 import { binding, ordersStore, withContext } from '../cloudflare/runtime.mjs';
-import { adminPasswordValid, editPendingShipment, ensureValidCollection, isAuthenticated, listWarehouseProducts, productSubtotal, quoteOrder, removeOrder, sameOrigin, sendStageSms, sessionCookie, shippingComponents, shippingFeeFromEstimate, syncOrder, syncSmsDelivery, validateOrder, warehouseSelection } from '../cloudflare/core.mjs';
+import { adminPasswordValid, compactSmsRecord, editPendingShipment, ensureValidCollection, isAuthenticated, listWarehouseProducts, productSubtotal, quoteOrder, removeOrder, resalaDeliveryStatus, sameOrigin, sendStageSms, sessionCookie, shippingComponents, shippingFeeFromEstimate, syncOrder, syncSmsDelivery, validateOrder, warehouseSelection } from '../cloudflare/core.mjs';
+
+test('compact Resala templates keep the order total and Darb reference within one typical SMS page', () => {
+  const order = { id: '12345678-0000-0000-0000-000000000000', orderNumber: 'ZN001', phone: '0912345678',
+    product: 'طاولة كومبو', quantity: 1, unitPrice: 350, deliveryFee: 20, shipmentReference: '2384360' };
+  const confirmation = compactSmsRecord(order, 'confirmation');
+  const onWay = compactSmsRecord(order, 'onWay');
+  assert.deepEqual(confirmation, { phone: '218912345678', $1: 'ZN001', $2: '370', $3: '2384360' });
+  assert.equal(onWay.$2, '2384360');
+  assert.ok(`ركن: طلبك ${confirmation.$1} مؤكد. الإجمالي ${confirmation.$2} د.ل. التتبع ${confirmation.$3}`.length <= 67);
+  assert.equal(resalaDeliveryStatus([{ content: 'ركن: طلبك ZN001 مؤكد. الإجمالي 370 د.ل. التتبع 2384360', status: 'delivered' }], order, 'confirmation'), 'delivered');
+  assert.equal(resalaDeliveryStatus([{ content: 'ركن: طلبك ZN001 بالطريق. التتبع 2384360', status: 'delivered' }], order, 'onWay'), 'delivered');
+});
 
 test('additional contact numbers and estimated weight are validated before any carrier request', () => {
   const input = { customer: 'زبون', phone: '0912345678', additionalPhones: ['+218923456789'], city: 'طرابلس', area: 'عين زارة',

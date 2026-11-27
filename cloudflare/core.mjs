@@ -13,8 +13,8 @@ export const COMMISSION_LYD = 15;
 
 export function env(name) { return binding(name) || ''; }
 export function resalaReady() {
-  return Boolean(env('RESALA_API_KEY') && (env('RESALA_CONFIRM_ADDRESS_TEMPLATE_ID') || env('RESALA_CONFIRM_DETAILED_TEMPLATE_ID') || env('RESALA_CONFIRM_TEMPLATE_ID'))
-    && (env('RESALA_ON_WAY_DETAILED_TEMPLATE_ID') || env('RESALA_ON_WAY_TEMPLATE_ID')));
+  return Boolean(env('RESALA_API_KEY') && (env('RESALA_CONFIRM_COMPACT_TEMPLATE_ID') || env('RESALA_CONFIRM_ADDRESS_TEMPLATE_ID') || env('RESALA_CONFIRM_DETAILED_TEMPLATE_ID') || env('RESALA_CONFIRM_TEMPLATE_ID'))
+    && (env('RESALA_ON_WAY_COMPACT_TEMPLATE_ID') || env('RESALA_ON_WAY_DETAILED_TEMPLATE_ID') || env('RESALA_ON_WAY_TEMPLATE_ID')));
 }
 export function json(data, status = 200, headers = {}) {
   return Response.json(data, { status, headers: { 'Cache-Control': 'no-store', ...headers } });
@@ -391,6 +391,18 @@ export function smsTemplateRecord(order, stage, detailed = false) {
   }
   return base;
 }
+export function compactSmsRecord(order, stage) {
+  const record = smsTemplateRecord(order, stage);
+  if (stage === 'confirmation') {
+    record.$2 = String(Number((productSubtotal(order) + Number(order.deliveryFee || 0)).toFixed(2)));
+    record.$3 = String(order.shipmentReference || '');
+  }
+  if (!record.$2 || (stage === 'confirmation' && !record.$3)) throw new Error('رقم تتبع درب السبيل مطلوب لإرسال الرسالة.');
+  for (const key of ['$1', '$2', '$3']) {
+    if (record[key] && record[key].length > 20) throw new Error(`${key} يتجاوز حد 20 حرفًا في قالب رِسالة.`);
+  }
+  return record;
+}
 export async function sendStageSms(id, stage) {
   const field = stage === 'confirmation' ? 'confirmationSms' : 'onWaySms';
   const entry = await readOrder(id);
@@ -400,11 +412,13 @@ export async function sendStageSms(id, stage) {
     !['pending', 'needs_key'].includes(order[field])) return order;
   const detailedId = env(stage === 'confirmation' ? 'RESALA_CONFIRM_DETAILED_TEMPLATE_ID' : 'RESALA_ON_WAY_DETAILED_TEMPLATE_ID');
   const addressTemplate = stage === 'confirmation' && env('RESALA_CONFIRM_ADDRESS_TEMPLATE_ID');
-  const templateId = addressTemplate || detailedId || env(stage === 'confirmation' ? 'RESALA_CONFIRM_TEMPLATE_ID' : 'RESALA_ON_WAY_TEMPLATE_ID');
+  const compactTemplate = env(stage === 'confirmation' ? 'RESALA_CONFIRM_COMPACT_TEMPLATE_ID' : 'RESALA_ON_WAY_COMPACT_TEMPLATE_ID');
+  const templateId = compactTemplate || addressTemplate || detailedId || env(stage === 'confirmation' ? 'RESALA_CONFIRM_TEMPLATE_ID' : 'RESALA_ON_WAY_TEMPLATE_ID');
   if (!env('RESALA_API_KEY') || !templateId) return updateOrder(id, { [field]: 'needs_key' });
   let record;
   try {
-    if (addressTemplate) {
+    if (compactTemplate) record = compactSmsRecord(order, stage);
+    else if (addressTemplate) {
       const fields = confirmationFields(order);
       if (!fields.$6 || fields.$6.length > 20) throw new Error('كود درب السبيل غير صالح لقالب رِسالة.');
       for (const key of ['$1', '$2', '$4', '$5']) {
@@ -455,6 +469,11 @@ export function resalaDeliveryStatus(rows, order, stage) {
   const numbers = [order.orderNumber || orderNumberFromId(order.id), order.legacyOrderNumber, order.id.slice(0, 8)].filter(Boolean);
   const matching = (Array.isArray(rows) ? rows : []).find((item) => {
     const content = String(item.content || '');
+    if (content.startsWith('ركن: طلبك ') && content.includes('التتبع ')) {
+      return numbers.some((number) => content.includes(number)) &&
+        Boolean(order.shipmentReference && content.includes(order.shipmentReference)) &&
+        (stage === 'onWay' ? content.includes('بالطريق') : content.includes('مؤكد'));
+    }
     if (content.includes('تم تأكيد طلبيتك:') && content.includes('كود الطلبية الخاص بدرب السبيل:')) {
       return stage === 'confirmation' && Boolean(order.shipmentReference) && content.split('كود الطلبية الخاص بدرب السبيل:')[1].trim().split(/\s/)[0] === order.shipmentReference;
     }
