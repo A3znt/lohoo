@@ -591,7 +591,7 @@ export async function removeOrder(id) {
 
 export async function syncOrder(id, { requireFound = false } = {}) {
   const entry = await readOrder(id);
-  if (!entry?.data?.shipmentReference || !['confirmed', 'on_way', 'postponed', 'delivery_failed'].includes(entry.data.status)) return entry?.data || null;
+  if (!entry?.data?.shipmentReference || entry.data.deletedAt || entry.data.carrierDeletedAt || entry.data.status === 'attention') return entry?.data || null;
   const record = await findStoredShipment(entry.data);
   const status = String(record?.status || '');
   if (!record) {

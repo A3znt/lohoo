@@ -26,7 +26,7 @@ export default async function handler() {
           await updateOrder(order.id, { [field]: 'unknown' });
         }
       }
-      if (['confirmed', 'on_way', 'postponed', 'delivery_failed'].includes(order.status)) await syncOrder(order.id);
+      if (order.shipmentReference && !order.carrierDeletedAt && order.status !== 'attention') await syncOrder(order.id);
       if (config.autoMessages && resalaReady() && order.confirmationSms === 'needs_key' && order.shipmentReference) {
         await sendStageSms(order.id, 'confirmation');
       }
