@@ -97,7 +97,10 @@ export async function setAgentEnabled(id, enabled) {
 }
 export async function loginAgent(username, password) {
   const normalized = String(username || '').trim().toLowerCase();
-  const agent = (await listAgents()).find((item) => item.username === normalized && item.enabled);
+  const aliases = { muna: 'mona', 'منى': 'mona', 'سجى': 'saja' };
+  const agents = await listAgents();
+  const agent = agents.find((item) => item.username === normalized && item.enabled)
+    || agents.find((item) => item.username === aliases[normalized] && item.enabled);
   if (!agent || typeof password !== 'string') return null;
   const actual = passwordHash(password, agent.salt);
   if (!equal(actual, agent.passwordHash)) return null;
