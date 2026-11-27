@@ -61,6 +61,7 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
 .order-customer small,.date-cell,.source{color:#8d8274}
 .status{background:#f3e9d8;color:#846033}
 .status-on_way{background:#e6efe8;color:#3d7359}
+.status-processing{background:#efe8dc;color:#805b2e}
 .status-delivered{background:#e1f0e7;color:#337457}
 .shipping-banner{background:linear-gradient(105deg,#3b3228,#5c4a34);border-color:#8c7453}
 .shipping-banner p{color:#e0d2bd}

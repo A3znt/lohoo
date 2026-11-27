@@ -1,5 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { isOnWayStatus as cloudflareIsOnWayStatus } from '../cloudflare/core.mjs';
+
+test('Darb processing remains separate from out for delivery', () => {
+  assert.equal(cloudflareIsOnWayStatus('processing'), false);
+  assert.equal(cloudflareIsOnWayStatus('out_for_delivery'), true);
+});
 import { generateKeyPairSync, scryptSync } from 'node:crypto';
 import { binding, ordersStore, withContext } from '../cloudflare/runtime.mjs';
 import { adminPasswordValid, editPendingShipment, ensureValidCollection, isAuthenticated, listWarehouseProducts, productSubtotal, quoteOrder, removeOrder, sameOrigin, sendStageSms, sessionCookie, shippingComponents, shippingFeeFromEstimate, syncOrder, syncSmsDelivery, validateOrder, warehouseSelection } from '../cloudflare/core.mjs';

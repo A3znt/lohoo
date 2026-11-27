@@ -31,7 +31,7 @@ import { ApiError, api, login, loginAgent, logout, money, orderNumber, orderTota
 
 type View = 'overview' | 'orders' | 'shipping' | 'wallet' | 'team' | 'settings';
 const statusText: Record<OrderStatus, string> = {
-  creating: 'جاري إنشاء الشحنة', confirmed: 'تم التأكيد', on_way: 'في الطريق', postponed: 'مؤجل', delivery_failed: 'تعذّر التوصيل', delivered: 'تم التسليم',
+  creating: 'جاري إنشاء الشحنة', confirmed: 'قيد التجهيز', processing: 'قيد المعالجة', on_way: 'في الطريق', postponed: 'مؤجل', delivery_failed: 'تعذّر التوصيل', delivered: 'تم التسليم',
   returned: 'مرتجع', cancelled: 'ملغي', attention: 'يحتاج مراجعة',
 };
 const shortDate = (value: string) => new Intl.DateTimeFormat('ar-LY', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }).format(new Date(value));
@@ -410,7 +410,7 @@ function App() {
               </div>
               <span className="count-pill">{visible.length} طلب</span>
             </div>
-            <div className="filters">{([['all', 'الكل'], ['creating', 'جاري الإنشاء'], ['confirmed', 'مؤكد'], ['on_way', 'في الطريق'], ['postponed', 'مؤجل'], ['delivery_failed', 'تعذّر التوصيل'], ['delivered', 'تم التسليم'], ['returned', 'مرتجع'], ['cancelled', 'ملغي'], ['attention', 'يحتاج مراجعة']] as const).map(([key, label]) => <button key={key} type="button" className={filter === key ? 'selected' : ''} aria-pressed={filter === key} onClick={() => setFilter(key)}>{label}</button>)}</div>
+            <div className="filters">{([['all', 'الكل'], ['creating', 'جاري الإنشاء'], ['confirmed', 'قيد التجهيز'], ['processing', 'قيد المعالجة'], ['on_way', 'في الطريق'], ['postponed', 'مؤجل'], ['delivery_failed', 'تعذّر التوصيل'], ['delivered', 'تم التسليم'], ['returned', 'مرتجع'], ['cancelled', 'ملغي'], ['attention', 'يحتاج مراجعة']] as const).map(([key, label]) => <button key={key} type="button" className={filter === key ? 'selected' : ''} aria-pressed={filter === key} onClick={() => setFilter(key)}>{label}</button>)}</div>
             {visible.length ? <><OrderList orders={visible.slice(0, visibleLimit)} onSelect={setSelected} />{visible.length > visibleLimit && <div className="load-more"><span>عرض {visibleLimit} من {visible.length} طلب</span><button type="button" className="btn ghost" onClick={() => setVisibleLimit((value) => value + 30)}>عرض المزيد</button></div>}</> : <Empty title={query.trim() || filter !== 'all' ? 'لا توجد طلبات مطابقة' : 'ما فيش طلبات هنا بعد'} description={query.trim() || filter !== 'all' ? 'جرّب تغيير البحث أو حالة الطلب.' : 'أضف أول طلب جديد.'} onClick={query.trim() || filter !== 'all' ? undefined : () => setFormOpen(true)} />}
           </div>
         </>}

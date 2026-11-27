@@ -1,4 +1,4 @@
-export type OrderStatus = 'creating' | 'confirmed' | 'on_way' | 'postponed' | 'delivery_failed' | 'delivered' | 'returned' | 'cancelled' | 'attention';
+export type OrderStatus = 'creating' | 'confirmed' | 'processing' | 'on_way' | 'postponed' | 'delivery_failed' | 'delivered' | 'returned' | 'cancelled' | 'attention';
 export type SmsStatus = 'pending' | 'needs_key' | 'sending' | 'sent' | 'delivered' | 'failed' | 'unknown';
 export interface OrderItem { product: string; quantity: number; unitPrice: number; warehouseProductId: string; warehouseVariantId: string; sku?: string; widthCM?: number; heightCM?: number; lengthCM?: number }
 export interface Order {

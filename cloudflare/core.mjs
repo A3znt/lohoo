@@ -497,7 +497,7 @@ export async function syncSmsDelivery(id) {
 }
 export function isOnWayStatus(value) {
   const normalized = String(value || '').replace(/([a-z])([A-Z])/g, '$1_$2').toLowerCase().replace(/[\s-]+/g, '_');
-  return ['processing', 'shipped', 'in_transit', 'out_for_delivery', 'on_the_way', 'on_way', 'dispatched', 'with_driver',
+  return ['shipped', 'in_transit', 'out_for_delivery', 'on_the_way', 'on_way', 'dispatched', 'with_driver',
     'في_الطريق', 'قيد_التوصيل', 'قيد_التسليم', 'خرج_للتوصيل', 'خرجت_للتوصيل', 'جاري_التوصيل'].includes(normalized);
 }
 export function isDeliveredStatus(value) {
@@ -637,8 +637,9 @@ export async function syncOrder(id, { requireFound = false } = {}) {
   else if (event?.kind === 'delivery_failed') updates.status = 'delivery_failed';
   else if (event?.kind === 'cancelled') updates.status = 'cancelled';
   else if (event?.kind === 'returned') updates.status = 'returned';
+  else if (status.toLowerCase() === 'processing') updates.status = 'processing';
   else if (isOnWayStatus(status) && latest.status !== 'on_way') updates.status = 'on_way';
-  else if (status.toLowerCase() === 'pending' && ['postponed', 'delivery_failed'].includes(latest.status)) updates.status = 'confirmed';
+  else if (status.toLowerCase() === 'pending' && ['postponed', 'delivery_failed', 'processing'].includes(latest.status)) updates.status = 'confirmed';
   else if (isDeliveredStatus(status)) updates.status = 'delivered';
   else if (status.toLowerCase() === 'returned') updates.status = 'returned';
   if (updates.status === latest.status) delete updates.status;

@@ -29,7 +29,7 @@ test('export preserves Arabic and computes monetary fields without guessing stat
   assert.match(csv, /"إنستغرام"/);
   assert.match(csv, /"225","30","195"/);
   assert.match(csv, /طاولة × 1 × 50/);
-  assert.match(csv, /"تم التأكيد"/);
+  assert.match(csv, /"قيد التجهيز"/);
   assert.equal(csv.split('\r\n').length, 3);
   assert.equal(exportOrdersCsv([]).split('\r\n').length, 2);
 });

@@ -12,7 +12,8 @@ const headings = [
 
 const statuses = {
   creating: 'جاري إنشاء الشحنة',
-  confirmed: 'تم التأكيد',
+  confirmed: 'قيد التجهيز',
+  processing: 'قيد المعالجة',
   on_way: 'في الطريق',
   postponed: 'مؤجل',
   delivery_failed: 'تعذر التوصيل',
