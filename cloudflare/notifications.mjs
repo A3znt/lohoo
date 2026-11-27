@@ -20,10 +20,12 @@ export function carrierEvent(record) {
   const selected = [status, ...(status ? [] : [timelineStatus])].find((value) =>
     ['postponed', 'deferred', 'rescheduled', 'delayed', 'مؤجل', 'مؤجلة', 'تم_التأجيل',
       'failed', 'undelivered', 'delivery_failed', 'attempt_failed', 'تعذر', 'تعذر_التسليم', 'فشل_التوصيل',
-      'cancelled', 'canceled', 'ملغي', 'ملغية', 'تم_الإلغاء'].includes(value));
+      'cancelled', 'canceled', 'ملغي', 'ملغية', 'تم_الإلغاء',
+      'returned', 'return', 'مرتجع', 'راجعة', 'راجع'].includes(value));
   if (!selected) return null;
   const kind = ['postponed', 'deferred', 'rescheduled', 'delayed', 'مؤجل', 'مؤجلة', 'تم_التأجيل'].includes(selected)
-    ? 'postponed' : ['cancelled', 'canceled', 'ملغي', 'ملغية', 'تم_الإلغاء'].includes(selected) ? 'cancelled' : 'delivery_failed';
+    ? 'postponed' : ['cancelled', 'canceled', 'ملغي', 'ملغية', 'تم_الإلغاء'].includes(selected) ? 'cancelled'
+      : ['returned', 'return', 'مرتجع', 'راجعة', 'راجع'].includes(selected) ? 'returned' : 'delivery_failed';
   const matchingTimeline = timelineStatus === selected ? latest : entries.findLast((item) => normalizeStatus(item?.status || item?.type) === selected);
   const candidates = [record?.statusReason, record?.failureReason, record?.postponementReason,
     record?.cancellationReason, record?.reason, matchingTimeline?.remarks, matchingTimeline?.reason, matchingTimeline?.description,
@@ -165,7 +167,8 @@ export async function createAdminNotification(key, { kind, orderId = '', title, 
 export async function createCarrierNotification(order, event) {
   const signature = `${order.id}\n${event.kind}\n${event.reason}\n${event.eventId}`;
   const id = (await pushKey(signature)).slice(5);
-  const title = event.kind === 'postponed' ? 'طلبية مؤجّلة' : event.kind === 'cancelled' ? 'طلبية ملغية' : 'تعذّر توصيل الطلبية';
+  const title = event.kind === 'postponed' ? 'طلبية مؤجّلة' : event.kind === 'cancelled' ? 'طلبية ملغية'
+    : event.kind === 'returned' ? 'طلبية راجعة' : 'تعذّر توصيل الطلبية';
   const number = order.orderNumber || order.id.slice(0, 8);
   const location = [order.city, order.area].filter(Boolean).join('، ');
   const body = `طلبية ${number} · ${order.customer}${location ? ` · ${location}` : ''} · ${event.reason ? `السبب: ${event.reason}` : 'لم يذكر درب السبيل سببًا بعد.'} افتح الطلب لمراجعة التفاصيل.`;

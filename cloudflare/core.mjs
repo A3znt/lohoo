@@ -145,6 +145,10 @@ export async function updateOrder(id, change, expectedEtag) {
       next.commissionAmount = COMMISSION_LYD;
       next.commissionEarnedAt = now;
     }
+    if (['returned', 'cancelled'].includes(next.status) && !next.commissionPaidAt) {
+      next.commissionAmount = 0;
+      next.commissionEarnedAt = '';
+    }
     const result = await ordersStore().setJSON(orderKey(id), next, { onlyIfMatch: entry.etag });
     if (result.modified) return next;
   }
@@ -443,7 +447,9 @@ export async function sendStageSms(id, stage) {
     return failed;
   }
   if (payload?.succeeded !== 1 || payload?.failed !== 0) return uncertain();
-  return updateOrder(id, { [field]: 'sent', [`${field}Id`]: payload.sms_template_version?.id || '' });
+  const cost = Number(payload.total_cost);
+  return updateOrder(id, { [field]: 'sent', [`${field}Id`]: payload.sms_template_version?.id || '',
+    ...(Number.isFinite(cost) && cost >= 0 ? { [`${field}Cost`]: cost } : {}) });
 }
 export function resalaDeliveryStatus(rows, order, stage) {
   const numbers = [order.orderNumber || orderNumberFromId(order.id), order.legacyOrderNumber, order.id.slice(0, 8)].filter(Boolean);
@@ -630,6 +636,7 @@ export async function syncOrder(id, { requireFound = false } = {}) {
   if (event?.kind === 'postponed') updates.status = 'postponed';
   else if (event?.kind === 'delivery_failed') updates.status = 'delivery_failed';
   else if (event?.kind === 'cancelled') updates.status = 'cancelled';
+  else if (event?.kind === 'returned') updates.status = 'returned';
   else if (isOnWayStatus(status) && latest.status !== 'on_way') updates.status = 'on_way';
   else if (status.toLowerCase() === 'pending' && ['postponed', 'delivery_failed'].includes(latest.status)) updates.status = 'confirmed';
   else if (isDeliveredStatus(status)) updates.status = 'delivered';

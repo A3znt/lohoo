@@ -13,6 +13,7 @@ export interface Order {
   darbStatus: string; shippingPrice: unknown; shippingError: string; readyToRetry?: boolean;
   carrierReason?: string;
   confirmationSms: SmsStatus; onWaySms: SmsStatus;
+  confirmationSmsCost?: number; onWaySmsCost?: number;
   confirmationSmsError?: string; onWaySmsError?: string;
   agentId?: string; agentName?: string; commissionAmount?: number; commissionEarnedAt?: string; commissionPaidAt?: string;
 }

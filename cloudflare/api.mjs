@@ -7,7 +7,7 @@ import { dailyReviewedIds, reviewShipment, tripoliClock } from './daily-review.m
 import { migrateOrderCodes } from './order-codes.mjs';
 
 function commissionSummary(orders) {
-  const earned = orders.reduce((sum, order) => sum + (order.commissionEarnedAt ? Number(order.commissionAmount || 0) : 0), 0);
+  const earned = orders.reduce((sum, order) => sum + (order.status === 'delivered' && order.commissionEarnedAt ? Number(order.commissionAmount || 0) : 0), 0);
   const paid = orders.reduce((sum, order) => sum + (order.commissionPaidAt ? Number(order.commissionAmount || 0) : 0), 0);
   const counted = orders.filter(order => !order.deletedAt && order.status !== 'cancelled');
   return { assigned: counted.length, delivered: counted.filter((order) => order.status === 'delivered').length,

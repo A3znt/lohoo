@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises';
 
 const account = 'a00a948f2c21dfb3aadead6f853ffdca';
 const database = 'fbc6a70c-490a-4365-96e1-879447e94b36';
-const worker = 'daftar-orders-personal';
+const worker = process.env.RUKN_WORKER_NAME || 'daftar-orders-personal';
 const token = process.env.CLOUDFLARE_API_TOKEN;
 if (!token) throw new Error('Set CLOUDFLARE_API_TOKEN in the shell before deploying.');
 
