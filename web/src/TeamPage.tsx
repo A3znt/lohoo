@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import { Check, LockKeyhole, PackageCheck, Plus, Users, Wallet, X } from 'lucide-react';
-import { api, money, type AgentSummary } from './api';
+import { api, money, type AgentSummary, type FinanceSummary, type PayoutRequest } from './api';
 
-type Props = { agents: AgentSummary[]; busy: boolean; run: <T>(task: () => Promise<T>, success?: string) => Promise<T> };
+type Props = { agents: AgentSummary[]; finance: FinanceSummary | null; requests: PayoutRequest[]; busy: boolean; run: <T>(task: () => Promise<T>, success?: string) => Promise<T> };
 
-export default function TeamPage({ agents, busy, run }: Props) {
+export default function TeamPage({ agents, finance, requests, busy, run }: Props) {
   const [name, setName] = useState('');
   const [username, setUsername] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -14,6 +14,7 @@ export default function TeamPage({ agents, busy, run }: Props) {
   const [editUsername, setEditUsername] = useState('');
   const [password, setPassword] = useState('');
   const [passwordConfirm, setPasswordConfirm] = useState('');
+  const [transferReferences, setTransferReferences] = useState<Record<string, string>>({});
   const due = agents.reduce((sum, agent) => sum + agent.due, 0);
   const paid = agents.reduce((sum, agent) => sum + agent.paid, 0);
   const earned = agents.reduce((sum, agent) => sum + agent.earned, 0);
@@ -46,6 +47,17 @@ export default function TeamPage({ agents, busy, run }: Props) {
     try { await run(() => api('payAgentCommissions', { agentId: agent.id }), `تم تسجيل صرف ${money(agent.due)} إلى ${agent.name}`); }
     catch { /* Error is shown by run. */ }
   }
+  async function complete(request: PayoutRequest) {
+    const transferReference = (transferReferences[request.id] || request.transferReference || '').trim();
+    if (transferReference.length < 3) return;
+    try { await run(() => api('completePayout', { id: request.id, transferReference }), 'تم تسجيل الصرف وإبلاغ المندوبة'); }
+    catch { /* Error is shown by run. */ }
+  }
+  async function cancel(request: PayoutRequest) {
+    if (!window.confirm(`إلغاء طلب سحب ${request.agentName} بقيمة ${money(request.amount)}؟`)) return;
+    try { await run(() => api('cancelPayout', { id: request.id }), 'أُلغي طلب السحب'); }
+    catch { /* Error is shown by run. */ }
+  }
   return <div className="team-page">
     <div className="page-title"><div><span className="overline">فريق العمل</span><h1>الفريق والحسابات</h1><p>كل طلب يُسلّم يمنح المندوبة 15 د.ل. سجل الصرف من هنا.</p></div></div>
     <div className="team-money-grid">
@@ -54,11 +66,13 @@ export default function TeamPage({ agents, busy, run }: Props) {
       <div><Check size={20} /><span>المصروف</span><strong>{money(paid)}</strong></div>
       <div className="highlight"><Wallet size={20} /><span>المتبقي للصرف</span><strong>{money(due)}</strong></div>
     </div>
+    {finance && <section className="panel finance-overview"><div className="panel-head"><div><span className="overline">المالية</span><h2>ملخص المتجر</h2></div></div><div className="finance-grid"><div><small>قيمة الطلبات النشطة</small><strong>{money(finance.activeGross)}</strong></div><div><small>قيمة الطلبات المسلّمة</small><strong>{money(finance.deliveredGross)}</strong></div><div><small>المحصّل المسجل</small><strong>{money(finance.collected)}</strong></div><div><small>المتبقي للتحصيل</small><strong>{money(finance.outstanding)}</strong></div><div><small>توصيل محمّل على الطلبات</small><strong>{money(finance.deliveryCharged)}</strong></div><div><small>رسائل رِسالة المسجلة</small><strong>{money(finance.smsCost)}</strong></div><div><small>تحصيل طلبات ملغية أو راجعة للمراجعة</small><strong>{money(finance.returnedCollected)}</strong></div><div><small>عمولات صُرفت ثم تغيّرت حالة الطلب</small><strong>{money(agents.reduce((sum, agent) => sum + (agent.paidThenReturned || 0), 0))}</strong></div></div><p>الأرقام حسب سجلات ركن؛ رسوم التوصيل هي المبلغ على الطلب، وليست كشف تسوية فعليًا من درب السبيل.</p></section>}
+    <section className="panel payout-admin"><div className="panel-head"><div><span className="overline">صرف العمولات</span><h2>طلبات السحب</h2></div><span>{requests.filter((request) => ['pending', 'processing'].includes(request.status)).length} قيد المراجعة</span></div>{requests.length ? requests.map((request) => <article key={request.id} className="payout-admin-row"><div><strong>{request.agentName} · {money(request.amount)}</strong><span>{request.orderIds.length} طلبية مسلّمة · {request.status === 'completed' ? 'تم الصرف' : request.status === 'processing' ? 'قيد الإكمال' : request.status === 'cancelled' ? 'ملغي' : 'بانتظار الصرف'}</span><span>{request.profile.accountHolder} · {request.profile.method === 'bank' ? `${request.profile.bankName} · ${request.profile.accountNumber}` : request.profile.method === 'transfer' ? `حوالة ${request.profile.phone}` : 'نقدًا'}</span>{request.profile.notes && <small>{request.profile.notes}</small>}</div>{['pending', 'processing'].includes(request.status) ? <div className="payout-admin-action"><input aria-label={`سند صرف ${request.agentName}`} placeholder="رقم الحوالة أو سند الصرف" value={transferReferences[request.id] ?? request.transferReference ?? ''} onChange={(event) => setTransferReferences({ ...transferReferences, [request.id]: event.target.value })} /><button className="btn primary" disabled={busy || (transferReferences[request.id] ?? request.transferReference ?? '').trim().length < 3} onClick={() => void complete(request)}>تسجيل الصرف</button>{request.status === 'pending' && <button className="btn ghost" disabled={busy} onClick={() => void cancel(request)}>إلغاء</button>}</div> : request.status === 'completed' ? <small>صُرف {money(request.paidAmount ?? request.amount)} · السند {request.transferReference}</small> : null}</article>) : <p className="team-empty">لا توجد طلبات سحب بعد.</p>}</section>
     <div className="team-layout"><section className="panel team-panel"><div className="panel-head"><div><span className="overline">الحسابات والعمولات</span><h2>المندوبات</h2></div></div>
       {agents.length ? agents.map(agent => <article className="agent-card" key={agent.id}>
         <div className="agent-card-head"><span className="customer-avatar">{agent.name.slice(0, 1)}</span><div><strong>{agent.name}</strong><small dir="ltr">@{agent.username}</small></div><span className={`agent-state ${agent.enabled ? '' : 'disabled'}`}>{agent.enabled ? 'نشطة' : 'موقوفة'}</span></div>
         <div className="agent-stats"><span>الطلبات <b>{agent.assigned}</b></span><span>المسلّمة <b>{agent.delivered}</b></span><span>المكتسب <b>{money(agent.earned)}</b></span><span>المصروف <b>{money(agent.paid)}</b></span><span>المستحق <b>{money(agent.due)}</b></span></div>
-        <div className="agent-actions"><button className="btn primary" disabled={busy || agent.due <= 0} onClick={() => void pay(agent)}>تسجيل صرف {money(agent.due)}</button><button className="btn ghost" disabled={busy} onClick={() => { setEditing(agent); setEditName(agent.name); setEditUsername(agent.username); setPassword(''); setPasswordConfirm(''); }}>إدارة الحساب</button></div>
+        <div className="agent-actions"><button className="btn primary" disabled={busy || agent.due <= 0 || requests.some((request) => request.agentId === agent.id && ['pending', 'processing'].includes(request.status))} onClick={() => void pay(agent)}>تسجيل صرف {money(agent.due)}</button><button className="btn ghost" disabled={busy} onClick={() => { setEditing(agent); setEditName(agent.name); setEditUsername(agent.username); setPassword(''); setPasswordConfirm(''); }}>إدارة الحساب</button></div>
       </article>) : <p className="team-empty">أضف أول مندوبة لتظهر حساباتها وعمولاتها هنا.</p>}
     </section><section className="panel team-panel add-agent"><div className="panel-head"><div><span className="overline">إضافة حساب</span><h2>مندوبة جديدة</h2></div><Plus size={20} /></div><p>اكتب كلمة المرور التي تريدها بنفسك، من 8 أحرف على الأقل.</p>
       <label className="field"><span>الاسم</span><input value={name} onChange={event => setName(event.target.value)} placeholder="اسم المندوبة" /></label>

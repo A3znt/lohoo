@@ -2,7 +2,7 @@ import { canCorrectShipment } from '../shared/shipment-recovery.mjs';
 import { confirmationFields } from '../shared/confirmation.mjs';
 import { createHmac, randomUUID, scryptSync, timingSafeEqual } from 'node:crypto';
 import { binding, ordersStore as getCloudflareStore } from './runtime.mjs';
-import { carrierEvent, createAdminNotification, createCarrierNotification } from './notifications.mjs';
+import { carrierEvent, createAdminNotification, createCarrierNotification, createRecipientNotification } from './notifications.mjs';
 import { allocateOrderCode } from './order-codes.mjs';
 
 const DARB_BASE = 'https://v2.sabil.ly';
@@ -675,12 +675,16 @@ export async function syncOrder(id, { requireFound = false } = {}) {
     try { await createCarrierNotification({ ...latest, ...updates }, event); }
     catch (error) { console.error(JSON.stringify({ event: 'notification_failed', message: String(error) })); }
   }
-  if (updates.status && ['on_way', 'delivered', 'returned', 'confirmed'].includes(updates.status)) {
-    const titles = { on_way: 'الطلب في الطريق', delivered: 'تم تسليم الطلب', returned: 'الطلب مرتجع', confirmed: 'استؤنف الطلب' };
+  if (updates.status && ['on_way', 'delivered', 'confirmed', 'processing'].includes(updates.status)) {
+    const titles = { on_way: 'الطلب في الطريق', delivered: 'تم تسليم الطلب', confirmed: 'استؤنف الطلب', processing: 'الطلب قيد المعالجة' };
     try {
-      await createAdminNotification(`carrier-status:${id}:${saved.updatedAt}`, { kind: 'carrier_status', orderId: id,
-        title: `${titles[updates.status]} رقم ${saved.orderNumber || orderNumberFromId(id)}`,
-        body: `${saved.customer} · درب السبيل ${saved.shipmentReference} · أُدخل بواسطة ${saved.createdByName || 'المدير'}` });
+      const recipients = [...new Set(['admin', saved.createdById, saved.agentId]
+        .filter((recipient) => recipient === 'admin' || /^[a-f0-9-]{36}$/i.test(String(recipient || ''))))];
+      await Promise.all(recipients.map((recipient) => createRecipientNotification(recipient, `carrier-status:${id}:${saved.darbStatus}`, {
+        kind: 'carrier_status', orderId: id, title: `${titles[updates.status]} · ${saved.orderNumber || orderNumberFromId(id)}`,
+        body: `${saved.customer} · ${saved.city}${saved.area ? `، ${saved.area}` : ''} · درب السبيل ${saved.shipmentReference}${updates.status === 'delivered' && recipient !== 'admin' ? ' · أُضيفت عمولتك 15 د.ل' : ''}`,
+        phone: saved.phone, shipmentReference: saved.shipmentReference,
+      })));
     } catch (error) { console.error('Carrier status notification failed', id, error instanceof Error ? error.message : error); }
   }
   if (updates.status === 'on_way' && (await settings()).autoMessages) await sendStageSms(id, 'onWay');

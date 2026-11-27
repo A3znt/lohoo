@@ -155,13 +155,18 @@ export async function createManualNotifications(recipientIds, title, body) {
   return { count: recipients.length };
 }
 
-export async function createAdminNotification(key, { kind, orderId = '', title, body }) {
-  const id = (await pushKey(`admin:${key}`)).slice(5);
-  const notification = { id, agentId: 'admin', orderId, kind, title, body, reason: '',
+export async function createRecipientNotification(recipient, key, { kind, orderId = '', title, body, phone = '', shipmentReference = '' }) {
+  if (!recipientValid(recipient)) throw new Error('مستلم الإشعار غير صحيح.');
+  const id = (await pushKey(`${recipient}:${key}`)).slice(5);
+  const notification = { id, agentId: recipient, orderId, kind, title, body, reason: '', phone, shipmentReference,
     createdAt: new Date().toISOString(), readAt: '' };
-  const result = await ordersStore().setJSON(notificationKey('admin', id), notification, { onlyIfNew: true });
-  if (result.modified) await dispatchPush('admin', notification);
+  const result = await ordersStore().setJSON(notificationKey(recipient, id), notification, { onlyIfNew: true });
+  if (result.modified) await dispatchPush(recipient, notification);
   return notification;
+}
+
+export async function createAdminNotification(key, details) {
+  return createRecipientNotification('admin', key, details);
 }
 
 export async function createCarrierNotification(order, event) {
@@ -171,12 +176,12 @@ export async function createCarrierNotification(order, event) {
     : event.kind === 'returned' ? 'طلبية راجعة' : 'تعذّر توصيل الطلبية';
   const number = order.orderNumber || order.id.slice(0, 8);
   const location = [order.city, order.area].filter(Boolean).join('، ');
-  const body = `طلبية ${number} · ${order.customer}${location ? ` · ${location}` : ''} · ${event.reason ? `السبب: ${event.reason}` : 'لم يذكر درب السبيل سببًا بعد.'} افتح الطلب لمراجعة التفاصيل.`;
+  const body = `${number} · ${order.customer}${location ? ` · ${location}` : ''}${order.shipmentReference ? ` · درب السبيل ${order.shipmentReference}` : ''} · ${event.reason ? `السبب: ${event.reason}` : 'السبب غير متوفر بعد.'}`;
   const createdAt = new Date().toISOString();
   const recipients = [...new Set(['admin', order.createdById, order.agentId].filter((recipient) => recipient === 'admin' || agentIdValid(recipient)))];
   const notifications = await Promise.all(recipients.map(async (recipient) => {
     const notification = { id, agentId: recipient, orderId: order.id, kind: event.kind, title, body,
-      reason: event.reason, createdAt, readAt: '' };
+      reason: event.reason, phone: order.phone || '', shipmentReference: order.shipmentReference || '', createdAt, readAt: '' };
     const result = await ordersStore().setJSON(notificationKey(recipient, id), notification, { onlyIfNew: true });
     if (result.modified) await dispatchPush(recipient, notification);
     return notification;

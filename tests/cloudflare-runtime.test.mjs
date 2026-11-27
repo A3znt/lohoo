@@ -9,6 +9,49 @@ test('Darb processing remains separate from out for delivery', () => {
 import { generateKeyPairSync, scryptSync } from 'node:crypto';
 import { binding, ordersStore, withContext } from '../cloudflare/runtime.mjs';
 import { adminPasswordValid, compactSmsRecord, editPendingShipment, ensureValidCollection, isAuthenticated, listWarehouseProducts, productSubtotal, quoteOrder, removeOrder, resalaDeliveryStatus, sameOrigin, sendStageSms, sessionCookie, shippingComponents, shippingFeeFromEstimate, syncOrder, syncSmsDelivery, validateOrder, warehouseSelection } from '../cloudflare/core.mjs';
+import { cancelPayout, completePayout, eligibleCommissions, getPayoutProfile, listPayoutRequests, requestPayout, savePayoutProfile, validatePayoutProfile } from '../cloudflare/payouts.mjs';
+
+test('agent payout uses only delivered unpaid commissions and records a manual transfer once', async () => {
+  const agentId = '55555555-5555-4555-8555-555555555555';
+  const deliveredId = '66666666-6666-4666-8666-666666666666';
+  const cancelledId = '77777777-7777-4777-8777-777777777777';
+  const agent = { id: agentId, name: 'منى' };
+  assert.throws(() => validatePayoutProfile({ method: 'bank', accountHolder: 'منى', bankName: '', accountNumber: '' }), /المصرف/);
+  await withContext({ DB: fakeD1() }, async () => {
+    await savePayoutProfile(agentId, { method: 'bank', accountHolder: 'منى أحمد', bankName: 'مصرف الجمهورية', accountNumber: '123456789', phone: '', notes: '' });
+    assert.equal((await getPayoutProfile(agentId)).accountNumber, '123456789');
+    const delivered = { id: deliveredId, agentId, status: 'delivered', commissionEarnedAt: '2026-11-27', commissionPaidAt: '', commissionAmount: 15 };
+    const cancelled = { id: cancelledId, agentId, status: 'cancelled', commissionEarnedAt: '', commissionPaidAt: '', commissionAmount: 0 };
+    await ordersStore().setJSON(`orders/${deliveredId}`, delivered);
+    await ordersStore().setJSON(`orders/${cancelledId}`, cancelled);
+    assert.equal(eligibleCommissions([delivered, cancelled], agentId).length, 1);
+    const payout = await requestPayout(agent, [delivered, cancelled]);
+    assert.equal(payout.amount, 15);
+    await assert.rejects(requestPayout(agent, [delivered, cancelled]), /قيد المراجعة/);
+    const paid = await completePayout(payout.id, 'TR-001', async (id) => ordersStore().getWithMetadata(`orders/${id}`),
+      async (id, patch) => { const entry = await ordersStore().getWithMetadata(`orders/${id}`); const next = { ...entry.data, ...patch }; await ordersStore().setJSON(`orders/${id}`, next, { onlyIfMatch: entry.etag }); return next; });
+    assert.equal(paid.paidAmount, 15);
+    assert.equal((await listPayoutRequests(agentId))[0].status, 'completed');
+    await assert.rejects(completePayout(payout.id, 'TR-001', () => {}, () => {}), /بالفعل/);
+    assert.equal((await ordersStore().get(`orders/${cancelledId}`)).commissionPaidAt, '');
+  });
+});
+
+test('returned order blocks payout and the agent can cancel the stale request', async () => {
+  const agentId = '55555555-5555-4555-8555-555555555555';
+  const orderId = '66666666-6666-4666-8666-666666666666';
+  await withContext({ DB: fakeD1() }, async () => {
+    await savePayoutProfile(agentId, { method: 'cash', accountHolder: 'منى أحمد' });
+    const order = { id: orderId, agentId, status: 'delivered', commissionEarnedAt: '2026-11-27', commissionPaidAt: '', commissionAmount: 15 };
+    await ordersStore().setJSON(`orders/${orderId}`, order);
+    const payout = await requestPayout({ id: agentId, name: 'منى' }, [order]);
+    await ordersStore().setJSON(`orders/${orderId}`, { ...order, status: 'returned', commissionEarnedAt: '', commissionAmount: 0 });
+    await assert.rejects(completePayout(payout.id, 'TR-002', async (id) => ordersStore().getWithMetadata(`orders/${id}`), () => {}), /تغيّر استحقاق/);
+    const cancelled = await cancelPayout(payout.id, { id: agentId, role: 'agent' });
+    assert.equal(cancelled.status, 'cancelled');
+    await assert.rejects(completePayout(payout.id, 'TR-002', async () => {}, () => {}), /ملغي/);
+  });
+});
 
 test('compact Resala templates keep the order total and Darb reference within one typical SMS page', () => {
   const order = { id: '12345678-0000-0000-0000-000000000000', orderNumber: 'ZN001', phone: '0912345678',
@@ -760,17 +803,39 @@ test('Darb postponement, failed delivery and cancellation notify admin, creator 
       status = 'undelivered'; reason = 'تعذر التواصل مع الزبون';
       await syncOrder(id);
       notices = await listNotifications(muna);
-      assert.equal(notices.length, 2);
+      assert.equal(notices.length, 3);
       assert.ok(notices.some((item) => item.kind === 'delivery_failed' && item.reason === reason));
       status = 'cancelled'; reason = 'إلغاء من شركة التوصيل';
       await syncOrder(id);
       notices = await listNotifications(muna);
-      assert.equal(notices.length, 3);
+      assert.equal(notices.length, 4);
       assert.equal((await listNotifications('admin')).length, 4);
-      assert.equal((await listNotifications(saja)).length, 3);
+      assert.equal((await listNotifications(saja)).length, 4);
       assert.equal((await markAllNotificationsRead(saja)).filter((item) => !item.readAt).length, 0);
-      assert.equal((await listNotifications(muna)).filter((item) => !item.readAt).length, 2);
+      assert.equal((await listNotifications(muna)).filter((item) => !item.readAt).length, 3);
       assert.equal((await ordersStore().get(`orders/${id}`)).status, 'cancelled');
+    });
+  } finally { globalThis.fetch = previousFetch; }
+});
+
+test('Darb delivery alerts the agent and admin with copyable phone and carrier reference', async () => {
+  const id = '12121212-1212-4212-8212-121212121212';
+  const agentId = '34343434-3434-4434-8434-343434343434';
+  const previousFetch = globalThis.fetch;
+  globalThis.fetch = async () => Response.json({ status: true, data: { results: [{ _id: 'bbbbbbbbbbbbbbbbbbbbbbbb', reference: '7654321', status: 'delivered' }] } });
+  try {
+    await withContext({ DB: fakeD1(), DARB_API_KEY: 'fixture', DARB_ACCOUNT_ID: 'fixture' }, async () => {
+      await ordersStore().setJSON(`orders/${id}`, { id, orderNumber: 'MO007', customer: 'أحمد', phone: '218912345678',
+        city: 'طرابلس', area: 'عين زارة', agentId, createdById: agentId, shipmentReference: '7654321',
+        shipmentId: 'bbbbbbbbbbbbbbbbbbbbbbbb', status: 'on_way', darbStatus: 'out_for_delivery', updatedAt: '2026-11-20T00:00:00Z' });
+      await syncOrder(id);
+      const agentNotices = await listNotifications(agentId);
+      assert.equal(agentNotices.length, 1);
+      assert.match(agentNotices[0].body, /أُضيفت عمولتك 15/);
+      assert.equal(agentNotices[0].phone, '218912345678');
+      assert.equal(agentNotices[0].shipmentReference, '7654321');
+      assert.equal((await listNotifications('admin')).length, 1);
+      assert.equal((await ordersStore().get(`orders/${id}`)).commissionAmount, 15);
     });
   } finally { globalThis.fetch = previousFetch; }
 });

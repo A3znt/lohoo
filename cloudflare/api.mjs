@@ -1,17 +1,33 @@
 import { canCorrectShipment } from '../shared/shipment-recovery.mjs';
-import { removeOrder, createOrder, darb, editPendingShipment, ensureValidCollection, env, json, listDeliveryLocations, listOrders, listWarehouseProducts, quoteOrder, readOrder, resalaReady, retryShipment, sameOrigin, shippingComponents, syncSmsDelivery,
+import { removeOrder, createOrder, darb, editPendingShipment, ensureValidCollection, env, json, listDeliveryLocations, listOrders, listWarehouseProducts, productSubtotal, quoteOrder, readOrder, resalaReady, retryShipment, sameOrigin, shippingComponents, syncSmsDelivery,
   saveSettings, sendStageSms, settings, syncOrder, updateOrder } from './core.mjs';
 import { agentSessionCookie, changeOwnAgentPassword, createAgent, getActor, listAgents, publicAgent, readAgent, resetAgentPassword, setAgentEnabled, updateAgentProfile } from './team.mjs';
-import { createAdminNotification, createManualNotifications, listNotifications, markAllNotificationsRead, markNotificationRead, removePushSubscription, savePushSubscription, testPhonePush } from './notifications.mjs';
+import { createAdminNotification, createManualNotifications, createRecipientNotification, listNotifications, markAllNotificationsRead, markNotificationRead, removePushSubscription, savePushSubscription, testPhonePush } from './notifications.mjs';
 import { dailyReviewedIds, reviewShipment, tripoliClock } from './daily-review.mjs';
 import { migrateOrderCodes } from './order-codes.mjs';
+import { cancelPayout, completePayout, getPayoutProfile, listPayoutRequests, openPayoutForOrder, requestPayout, savePayoutProfile } from './payouts.mjs';
 
 function commissionSummary(orders) {
   const earned = orders.reduce((sum, order) => sum + (order.status === 'delivered' && order.commissionEarnedAt ? Number(order.commissionAmount || 0) : 0), 0);
   const paid = orders.reduce((sum, order) => sum + (order.commissionPaidAt ? Number(order.commissionAmount || 0) : 0), 0);
   const counted = orders.filter(order => !order.deletedAt && order.status !== 'cancelled');
+  const due = orders.reduce((sum, order) => sum + (order.status === 'delivered' && order.commissionEarnedAt && !order.commissionPaidAt ? Number(order.commissionAmount || 0) : 0), 0);
   return { assigned: counted.length, delivered: counted.filter((order) => order.status === 'delivered').length,
-    earned, paid, due: Math.max(0, earned - paid) };
+    earned, paid, due, paidThenReturned: orders.reduce((sum, order) => sum + (order.commissionPaidAt && order.status !== 'delivered' ? Number(order.commissionAmount || 0) : 0), 0) };
+}
+
+function financeSummary(orders) {
+  const active = orders.filter((order) => !order.deletedAt && !['cancelled', 'returned'].includes(order.status));
+  const delivered = active.filter((order) => order.status === 'delivered');
+  const total = (order) => productSubtotal(order) + Number(order.deliveryFee || 0);
+  return { activeOrders: active.length, deliveredOrders: delivered.length,
+    activeGross: active.reduce((sum, order) => sum + total(order), 0),
+    deliveredGross: delivered.reduce((sum, order) => sum + total(order), 0),
+    collected: active.reduce((sum, order) => sum + Number(order.paid || 0), 0),
+    outstanding: active.reduce((sum, order) => sum + Math.max(0, total(order) - Number(order.paid || 0)), 0),
+    deliveryCharged: active.reduce((sum, order) => sum + Number(order.deliveryFee || 0), 0),
+    smsCost: orders.reduce((sum, order) => sum + Number(order.confirmationSmsCost || 0) + Number(order.onWaySmsCost || 0), 0),
+    returnedCollected: orders.filter((order) => ['cancelled', 'returned'].includes(order.status)).reduce((sum, order) => sum + Number(order.paid || 0), 0) };
 }
 
 async function notifyAdminActivity(key, order, title, actorName) {
@@ -20,6 +36,10 @@ async function notifyAdminActivity(key, order, title, actorName) {
       title: `${title} رقم ${order.orderNumber || order.id.slice(0, 8)}`,
       body: `${order.customer} · بواسطة ${actorName}` });
   } catch (error) { console.error('Order activity notification failed', order.id, error instanceof Error ? error.message : error); }
+}
+async function notifyAgentSafe(recipient, key, details) {
+  try { await createRecipientNotification(recipient, key, details); }
+  catch (error) { console.error('Agent notification failed', recipient, error instanceof Error ? error.message : error); }
 }
 
 export default async function handler(request) {
@@ -53,6 +73,9 @@ export default async function handler(request) {
           notifications: await listNotifications(actor.id), vapidPublicKey: env('VAPID_PUBLIC_KEY'),
           agents: agents.map((agent) => ({ ...publicAgent(agent), ...commissionSummary(allOrders.filter((order) => order.agentId === agent.id)) })),
           commission: commissionSummary(assignedOrders), walletEntries,
+          payoutProfile: isAdmin ? null : await getPayoutProfile(actor.id),
+          payoutRequests: await listPayoutRequests(isAdmin ? '' : actor.id),
+          finance: isAdmin ? financeSummary(allOrders) : null,
           dailyReviewDate: tripoliClock().date, dailyReviewedIds: isAdmin ? await dailyReviewedIds() : [] } });
       }
       case 'markNotificationRead':
@@ -77,6 +100,20 @@ export default async function handler(request) {
         if (!recipients.length) throw new Error('اختر مستلمًا متاحًا.');
         return json({ ok: true, data: await createManualNotifications(recipients, input.title, input.body) });
       }
+      case 'savePayoutProfile': {
+        if (isAdmin) throw new Error('بيانات السحب تخص حساب المندوبة.');
+        return json({ ok: true, data: await savePayoutProfile(actor.id, input.profile) });
+      }
+      case 'requestPayout': {
+        if (isAdmin) throw new Error('طلب السحب متاح للمندوبات فقط.');
+        return json({ ok: true, data: await requestPayout(actor, await listOrders()) });
+      }
+      case 'completePayout': {
+        requireAdmin();
+        return json({ ok: true, data: await completePayout(input.id, input.transferReference, readOrder, updateOrder) });
+      }
+      case 'cancelPayout':
+        return json({ ok: true, data: await cancelPayout(input.id, actor) });
       case 'trash':
         requireAdmin();
         return json({ ok: true, data: (await listOrders()).filter(o => o.deletedAt) });
@@ -146,7 +183,8 @@ export default async function handler(request) {
         try {
           await createAdminNotification(`new-order:${order.id}`, { kind: 'new_order', orderId: order.id,
             title: `${isAdmin ? 'سجّلت' : `${order.createdByName || 'المندوبة'} سجّلت`} طلبًا رقم ${order.orderNumber}`,
-            body: `${order.customer} · ${order.product}${order.items?.length > 1 ? ` + ${order.items.length - 1} منتج` : ''}${order.shipmentReference ? ` · تأكد في درب السبيل برقم ${order.shipmentReference}` : ' · الشحنة تحتاج مراجعة'}` });
+            body: `${order.customer} · ${order.city} · ${order.product}${order.items?.length > 1 ? ` + ${order.items.length - 1} منتج` : ''}${order.shipmentReference ? ` · درب السبيل ${order.shipmentReference}` : ' · الشحنة تحتاج مراجعة'}`,
+            phone: order.phone, shipmentReference: order.shipmentReference });
         } catch (error) { console.error('New order notification failed', order.id, error instanceof Error ? error.message : error); }
         return json({ ok: true, data: order });
       }
@@ -225,6 +263,10 @@ export default async function handler(request) {
         if (entry.data.commissionEarnedAt && (agent?.id || '') !== entry.data.agentId) throw new Error('لا يمكن نقل الطلب بعد استحقاق العمولة.');
         const saved = await updateOrder(input.id, { agentId: agent?.id || '', agentName: agent?.name || '' });
         await notifyAdminActivity('assigned', saved, 'تغيّرت مندوبة الطلب', actor.name);
+        if (agent && agent.id !== entry.data.agentId) await notifyAgentSafe(agent.id, `assigned:${saved.id}:${agent.id}`, {
+          kind: 'order_activity', orderId: saved.id, title: `أُسندت لك طلبية ${saved.orderNumber}`,
+          body: `${saved.customer} · ${saved.city} · درب السبيل ${saved.shipmentReference || 'بانتظار الشحنة'}`,
+          phone: saved.phone, shipmentReference: saved.shipmentReference });
         return json({ ok: true, data: saved });
       }
       case 'payCommission': {
@@ -232,8 +274,12 @@ export default async function handler(request) {
         const entry = await requireOwnOrder(input.id);
         if (!entry.data.commissionEarnedAt || !entry.data.agentId) throw new Error('العمولة لا تُستحق إلا بعد التسليم.');
         if (entry.data.commissionPaidAt) throw new Error('هذه العمولة مسجلة كمدفوعة بالفعل.');
+        if (await openPayoutForOrder(input.id)) throw new Error('هذه العمولة ضمن طلب سحب قائم. أكمل طلب السحب من المالية.');
         const saved = await updateOrder(input.id, { commissionPaidAt: new Date().toISOString() });
         await notifyAdminActivity('commission', saved, 'صُرفت عمولة الطلب', actor.name);
+        await notifyAgentSafe(saved.agentId, `commission-paid:${saved.id}`, { kind: 'payout_paid', orderId: saved.id,
+          title: `صُرفت عمولة ${saved.orderNumber}`, body: `${Number(saved.commissionAmount || 0)} د.ل · تم تسجيل الصرف في ركن.`,
+          phone: saved.phone, shipmentReference: saved.shipmentReference });
         return json({ ok: true, data: saved });
       }
       case 'payAgentCommissions': {
@@ -242,6 +288,8 @@ export default async function handler(request) {
         if (!agent) throw new Error('حساب المندوبة غير موجود.');
         const unpaid = (await listOrders()).filter((order) => order.agentId === agent.id && order.commissionEarnedAt && !order.commissionPaidAt);
         if (!unpaid.length) throw new Error('لا توجد عمولات مستحقة للصرف.');
+        if ((await listPayoutRequests(agent.id)).some((request) => ['pending', 'processing'].includes(request.status)))
+          throw new Error('توجد طلبات سحب قيد المراجعة. أكملها من المالية أولًا.');
         let count = 0;
         let amount = 0;
         for (const order of unpaid) {
@@ -250,6 +298,8 @@ export default async function handler(request) {
           count += 1;
           amount += Number(order.commissionAmount || 0);
         }
+        await notifyAgentSafe(agent.id, `commission-bulk:${new Date().toISOString()}`, { kind: 'payout_paid',
+          title: 'صُرفت عمولاتك', body: `${amount} د.ل عن ${count} طلبية مسلّمة. راجعي محفظتك للتفاصيل.` });
         return json({ ok: true, data: { count, amount } });
       }
       default:

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Bell, BellOff, Check, CircleAlert, MessageCircle, Send, Truck, X } from 'lucide-react';
 import type { Actor, AgentSummary, NotificationRecord } from './api';
+import CopyButton from './CopyButton';
 
 interface Props {
   items: NotificationRecord[];
@@ -25,7 +26,7 @@ function NotificationEntry({ item, busy, onOpen, onRead }: { item: NotificationR
     <div className="notification-symbol">{item.kind === 'manual' || item.kind === 'daily_digest' ? <Bell size={17} /> : item.kind === 'sms_alert' ? <MessageCircle size={17} /> : <Truck size={17} />}</div>
     <div className="notification-content"><div className="notification-title"><strong>{item.title}</strong>{!item.readAt && <i aria-label="غير مقروء" />}</div>
       <p>{item.body}</p><small>{new Intl.DateTimeFormat('ar-LY', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }).format(new Date(item.createdAt))}</small>
-      <div className="notification-actions">{(item.orderId || item.kind === 'daily_digest') && <button className="btn ghost" disabled={busy} onClick={() => onOpen(item)}>{item.kind === 'daily_digest' ? 'فتح قائمة المتابعة' : ['postponed', 'delivery_failed', 'cancelled'].includes(item.kind) ? 'فتح الطلب ومعرفة السبب' : 'فتح الطلب'}</button>}{!item.readAt && <button className="btn ghost" disabled={busy} onClick={() => onRead(item)}><Check size={15} /> تم الاطلاع</button>}</div>
+      <div className="notification-actions">{(item.orderId || item.kind === 'daily_digest' || item.kind.startsWith('payout_')) && <button className="btn ghost" disabled={busy} onClick={() => onOpen(item)}>{item.kind === 'daily_digest' ? 'فتح قائمة المتابعة' : item.kind.startsWith('payout_') ? 'فتح المالية' : ['postponed', 'delivery_failed', 'cancelled'].includes(item.kind) ? 'فتح الطلب ومعرفة السبب' : 'فتح الطلب'}</button>}{item.phone && <span className="notification-copy">هاتف {item.phone}<CopyButton value={item.phone} label="رقم الزبون" compact /></span>}{item.shipmentReference && <span className="notification-copy">درب السبيل {item.shipmentReference}<CopyButton value={item.shipmentReference} label="كود درب السبيل" compact /></span>}{!item.readAt && <button className="btn ghost" disabled={busy} onClick={() => onRead(item)}><Check size={15} /> تم الاطلاع</button>}</div>
     </div>
   </article>;
 }
