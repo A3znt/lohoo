@@ -518,7 +518,7 @@ async function findStoredShipment(order) {
     const detail = await darb('GET', `/api/local/shipments/${order.shipmentId}`);
     const directRows = Array.isArray(detail) ? detail : detail?.results;
     if (!Array.isArray(directRows)) throw new Error('درب السبيل لم يؤكد غياب الشحنة. لم نغيّر الطلب.');
-    if (directRows.length > 0) record = exactShipment(detail, reference);
+    if (directRows.length > 0) record = directRows.find((row) => String(row?._id) === String(order.shipmentId)) || null;
     if (directRows.length > 0 && !record) throw new Error('الشحنة ما زالت موجودة في درب السبيل ببيانات مختلفة. لم نغيّر الطلب.');
   }
   if (record && (!/^[a-f0-9]{24}$/i.test(record._id) || (order.shipmentId && record._id !== order.shipmentId))) {
@@ -534,8 +534,7 @@ export async function editPendingShipment(id, form, expectedVersion, isAdmin) {
   }
   const order = entry.data;
   if (order.updatedAt !== expectedVersion) throw new Error('تغيّر الطلب. افتح تفاصيله مجددًا.');
-  const listed = await darb('GET', `/api/local/shipments/?reference=${encodeURIComponent(order.shipmentReference)}`);
-  const record = exactShipment(listed, order.shipmentReference);
+  const record = await findStoredShipment(order);
   if (!record || !/^[a-f0-9]{24}$/i.test(record._id) || (order.shipmentId && record._id !== order.shipmentId)) {
     throw new Error('تعذر تأكيد الشحنة في درب السبيل. لم نحفظ أي تعديل.');
   }
@@ -562,11 +561,13 @@ export async function editPendingShipment(id, form, expectedVersion, isAdmin) {
   const changed = await darb('PATCH', `/api/local/shipments/${record._id}`, {
     ...shipmentInput(next, service), contacts: contactIds, notes: shipmentNotes(next),
   });
-  if (changed?.reference && String(changed.reference) !== order.shipmentReference) {
+  if (changed?.reference && String(changed.reference) !== String(record.reference)) {
     throw new Error('استجابة درب السبيل لم تطابق رقم الشحنة. راجعها قبل إعادة المحاولة.');
   }
   return updateOrder(id, { ...clean, serviceId: service, deliveryFee, paid, shippingPrice: estimate, contactId: contactIds[0], contactIds,
-    shipmentId: record._id, darbStatus: 'pending' }, entry.etag);
+    shipmentId: record._id, shipmentReference: String(record.reference),
+    ...(String(record.reference) !== order.shipmentReference ? { previousShipmentReference: order.shipmentReference } : {}),
+    darbStatus: 'pending' }, entry.etag);
 }
 
 export async function removeOrder(id) {
@@ -620,6 +621,10 @@ export async function syncOrder(id, { requireFound = false } = {}) {
     } catch { /* Some Darb accounts do not expose the timeline endpoint. */ }
   }
   const updates = {};
+  if (record.reference && String(record.reference) !== latest.shipmentReference) {
+    updates.shipmentReference = String(record.reference);
+    updates.previousShipmentReference = latest.shipmentReference;
+  }
   if (status !== latest.darbStatus) updates.darbStatus = status;
   if (event && event.reason !== (latest.carrierReason || '')) updates.carrierReason = event.reason;
   if (event?.kind === 'postponed') updates.status = 'postponed';

@@ -615,7 +615,7 @@ test('pending edits reach Darb before local save; absent shipments are archived 
     calls.push({ path, method: init.method, body: init.body && JSON.parse(init.body) });
     if (path === '/api/local/shipments/') return Response.json({ status: true, data: { results: missing ? [] : [{ _id: shipmentId, reference: original.shipmentReference, status: 'pending' }] } });
     if (path === `/api/local/shipments/${shipmentId}` && init.method === 'GET') return Response.json({ status: true,
-      data: { results: directMissing ? [] : [{ _id: shipmentId, reference: 'DIFFERENT', status: 'pending' }] } });
+      data: { results: directMissing ? [] : [{ _id: 'dddddddddddddddddddddddd', reference: 'DIFFERENT', status: 'pending' }] } });
     if (path === '/api/local/branches/public') return Response.json({ status: true, data: { results: [{ countryCode: 'lby', city: 'طرابلس', area: 'عين زارة' }] } });
     if (path === `/api/warehouse/products/${productId}`) return Response.json({ status: true, data: { results: [{ _id: productId, productName: 'منتج', salePrice: 25, isPublished: true, isBlocked: false, variants: [{ _id: variantId, sku: 'SKU' }] }] } });
     if (path === '/api/local/shipments/calculate/shipping/') return Response.json({ status: true, data: { invoices: [{ items: [{ type: 'shipping', currency: 'lyd', amount: 12, quantity: 1 }] }] } });
