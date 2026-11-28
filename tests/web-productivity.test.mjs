@@ -4,27 +4,39 @@ import { readFile } from 'node:fs/promises';
 
 const read = (path) => readFile(new URL('../' + path, import.meta.url), 'utf8');
 
-test('copy controls are present for identifiers, phone, tracking and numeric metrics', async () => {
+test('copy stays on useful identifiers and contact details, not dashboard totals', async () => {
   const [main, copy] = await Promise.all([read('web/src/main.tsx'), read('web/src/CopyButton.tsx')]);
   assert.match(main, /<CopyButton value=\{orderNumber\(order\)\}/);
   assert.match(main, /label="رقم الهاتف الأساسي" value=\{order\.phone\} copyable/);
   assert.match(main, /label="رقم التتبع"[^>]*copyable/);
-  assert.match(main, /label="الإجمالي"[^>]*copyable/);
-  assert.match(main, /function Metric[\s\S]*?<CopyButton value=\{value\}/);
+  assert.doesNotMatch(main, /label="الإجمالي"[^>]*copyable/);
+  const metric = main.slice(main.indexOf('function Metric('), main.indexOf('function FlowStep('));
+  assert.doesNotMatch(metric, /CopyButton/);
   assert.match(copy, /navigator\.clipboard\?\.writeText/);
   assert.match(copy, /event\.stopPropagation\(\)/);
   assert.match(copy, /aria-label=\{text\}/);
   assert.match(copy, /aria-live="polite"/);
 });
 
-test('order listing keeps copy actions independent and provides keyboard access', async () => {
+test('order listing opens details without copy controls intercepting the row', async () => {
   const source = await read('web/src/main.tsx');
   assert.match(source, /className="order-row" role="group"/);
   assert.match(source, /className="row-open-action" onClick=\{\(\) => onSelect\(order\)\}/);
   assert.match(source, /aria-label=\{\`فتح الطلب /);
+  assert.doesNotMatch(source, /<span className="order-id-line">[^\n]*<CopyButton/);
   assert.doesNotMatch(source, /className="order-row" role="button"/);
   assert.match(source, /visible\.slice\(0, visibleLimit\)/);
   assert.match(source, /shippingOrders\.slice\(0, visibleLimit\)/);
+});
+
+test('dashboard counts and postponed shortcut open matching order filters', async () => {
+  const source = await read('web/src/main.tsx');
+  assert.match(source, /const openOrders = \(status: 'all' \| OrderStatus\)/);
+  assert.match(source, /setView\('orders'\); setMenuOpen\(false\); setFilter\(status\); setQuery\(''\)/);
+  assert.match(source, /label="إجمالي الطلبات"[^\n]*onClick=\{\(\) => openOrders\('all'\)\}/);
+  assert.match(source, /label="طلبات في الطريق"[^\n]*onClick=\{\(\) => openOrders\('on_way'\)\}/);
+  assert.match(source, /\['postponed', 'مؤجل'\]/);
+  assert.match(source, /onClick=\{\(\) => openOrders\(status\)\}/);
 });
 
 test('CSV export and shortcuts are scoped to current visible records', async () => {
@@ -63,10 +75,10 @@ test('account changes clear sensitive in-memory orders and invalidate old refres
   assert.match(source, /await logout\(\); clearSessionData\(\)/);
 });
 
-test('shipping list exposes direct tracking copy and a user-initiated telephone action', async () => {
+test('shipping list opens details with tracking copy and telephone action', async () => {
   const source = await read('web/src/main.tsx');
   assert.match(source, /showTracking && order\.shipmentReference/);
-  assert.match(source, /value=\{order\.shipmentReference\} label="رقم التتبع" compact/);
+  assert.match(source, /label="رقم التتبع"[^>]*copyable/);
   assert.match(source, /<OrderList orders=\{shippingOrders\.slice\(0, visibleLimit\)\} onSelect=\{setSelected\} showTracking/);
   assert.match(source, /href=\{`tel:\+\$\{order\.phone\.replace/);
   assert.match(source, /URL\.revokeObjectURL\(objectUrl\)/);

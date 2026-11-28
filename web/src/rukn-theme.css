@@ -94,7 +94,7 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
 
 /* Small, purposeful motion helps reveal new content and action feedback. */
 @keyframes rukn-appear{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
-@keyframes rukn-panel{from{opacity:0;transform:translateX(-12px)}to{opacity:1;transform:translateX(0)}}
+@keyframes rukn-panel{from{opacity:0;transform:translateX(18px)}to{opacity:1;transform:translateX(0)}}
 .hero,.page-title,.metric-grid,.dashboard-grid,.list-panel{animation:rukn-appear .48s cubic-bezier(.2,.75,.2,1) both}
 .metric-grid{animation-delay:.06s}.dashboard-grid,.list-panel{animation-delay:.12s}
 .drawer,.confirm-card{animation:rukn-panel .26s cubic-bezier(.2,.75,.2,1) both}
@@ -194,6 +194,37 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
 .extra-phone-detail .detail-line{flex:1;min-width:0}
 .extra-phone-detail a{display:inline-flex;align-items:center;gap:4px;color:#78532a;font-size:11px;font-weight:700;text-decoration:none}
 .order-items{display:grid;gap:11px;margin:8px 0 13px}
+
+/* Order counts are destinations. Monetary totals remain plain information. */
+.metric-link{width:100%;font:inherit;text-align:start;cursor:pointer;appearance:none}
+.metric-link:focus-visible,.status-shortcut:focus-visible{outline:3px solid #aa8853;outline-offset:3px}
+.metric-go{color:#aa8853;transition:transform .24s cubic-bezier(.2,.75,.2,1)}
+.metric-link:hover .metric-go,.metric-link:focus-visible .metric-go{transform:translate(-3px,-3px)}
+.metric-link:active,.status-shortcut:active{transform:scale(.985)}
+.status-shortcuts{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-top:12px}
+.status-shortcut{display:flex;align-items:center;gap:10px;min-width:0;min-height:58px;padding:11px 15px;border:1px solid #e6d9c5;border-radius:15px;background:#fffdfa;color:#66513a;font:inherit;font-size:12px;font-weight:700;text-align:start;box-shadow:0 5px 16px #4b38200c;transition:transform .24s cubic-bezier(.2,.75,.2,1),box-shadow .24s,border-color .24s,background-color .24s}
+.status-shortcut span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.status-shortcut strong{margin-inline-start:auto;min-width:28px;padding:3px 7px;border-radius:9px;background:#f4e9d6;color:#76532c;text-align:center;font-size:14px;font-variant-numeric:tabular-nums}
+.status-shortcut svg{flex:none;color:#aa8853;transition:transform .24s}
+.status-shortcut:hover,.status-shortcut:focus-visible{transform:translateY(-2px);border-color:#c8ad83;background:#fff8ed;box-shadow:0 13px 24px #4b382019}
+.status-shortcut:hover svg,.status-shortcut:focus-visible svg{transform:translateX(-3px)}
+.status-shortcut-postponed{border-color:#d9bf92;background:#fff8e9}
+.status-shortcut-postponed strong{background:#ead2a5;color:#60401f}
+@media(max-width:800px){.status-shortcuts{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:380px){.status-shortcut{padding:10px;gap:6px;font-size:11px}}
+
+/* Subtle entrance and press feedback without continuously moving the dashboard. */
+@keyframes rukn-tile-in{from{opacity:0;transform:translateY(13px) scale(.985)}to{opacity:1;transform:translateY(0) scale(1)}}
+@keyframes rukn-scrim-in{from{opacity:0}to{opacity:1}}
+.metric-grid .metric,.status-shortcuts .status-shortcut{animation:rukn-tile-in .4s cubic-bezier(.2,.75,.2,1) both}
+.metric-grid .metric:nth-child(2),.status-shortcuts .status-shortcut:nth-child(2){animation-delay:45ms}
+.metric-grid .metric:nth-child(3),.status-shortcuts .status-shortcut:nth-child(3){animation-delay:90ms}
+.metric-grid .metric:nth-child(4),.status-shortcuts .status-shortcut:nth-child(4){animation-delay:135ms}
+.drawer-scrim{animation:rukn-scrim-in .22s ease-out both}
+.toast{animation:rukn-tile-in .25s cubic-bezier(.2,.75,.2,1) both}
+.order-row{transition:background-color .18s ease,box-shadow .18s ease}
+.order-row:hover,.order-row:focus-within{box-shadow:inset -3px 0 #b99761}
+@media(prefers-reduced-motion:reduce){.metric-grid .metric,.status-shortcuts .status-shortcut,.drawer-scrim,.toast{animation:none}.metric-link,.metric-go,.status-shortcut,.status-shortcut svg,.order-row{transition:none}}
 .order-item-card{display:grid;gap:10px;padding:15px;border:1px solid #e5d6be;border-radius:17px;background:#fbf7ef;box-shadow:0 5px 15px #6e51200a}
 .order-item-head{display:flex;align-items:center;justify-content:space-between;gap:10px;color:#503a22;font-size:13px}
 .order-item-head button{display:grid;place-items:center;width:31px;height:31px;border:0;border-radius:9px;background:#f7e8df;color:#a75c48;cursor:pointer}
