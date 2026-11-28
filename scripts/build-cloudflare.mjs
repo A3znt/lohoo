@@ -1,5 +1,5 @@
 import { build } from 'esbuild';
-import { readdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { extname, join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -20,6 +20,7 @@ async function scan(folder) {
 }
 await scan(root);
 await writeFile(output, `export const assets = ${JSON.stringify(assets)};\n`);
+await mkdir(fileURLToPath(new URL('../.private/', import.meta.url)), { recursive: true });
 await build({ entryPoints: [fileURLToPath(new URL('../cloudflare/index.mjs', import.meta.url))],
   outfile: fileURLToPath(new URL('../.private/cloudflare-worker.mjs', import.meta.url)),
   bundle: true, format: 'esm', platform: 'browser', target: 'es2022', minify: true, external: ['node:*'] });

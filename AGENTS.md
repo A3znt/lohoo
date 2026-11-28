@@ -1,4 +1,8 @@
-This is an Expo/React Native mobile application. Prioritize mobile-first patterns, performance, and cross-platform compatibility.
+The production Rukn application is the Arabic RTL web app in `web/`, served by the Cloudflare Worker in `cloudflare/` with D1 storage. `scripts/build-cloudflare.mjs` bundles it. The Expo/React Native files are legacy and are not the production deployment. For requests about the live app, start with `web/`, `cloudflare/`, `shared/`, and `tests/`; do not change Expo files unless the request names the native app.
+
+Read `CHATGPT_HANDOFF.md` for the project map, safe development workflow, and deployment boundaries. Never commit `.dev.vars` or `.private/`, and never put Darb Assabil, Resala, VAPID, admin, or Cloudflare credentials in code, chat, pull requests, test fixtures, or workflow logs. Run `npm test`, `npm run typecheck:webapp`, `npm run lint`, and `npm run build:cloudflare` for production web changes.
+
+The Expo instructions below apply only when changing the legacy native app.
 
 ## Expo has changed — do not trust your training data
 
