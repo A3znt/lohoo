@@ -34,4 +34,5 @@ async function request(path, method, body) {
 }
 await request(endpoint, 'PUT', form);
 await request(`${endpoint}/schedules`, 'PUT', JSON.stringify([{ cron: '*/5 * * * *' }]));
-console.log(`Deployed https://${worker}.daftar-orders-a3z.workers.dev`);
+const subdomain = (await request(`https://api.cloudflare.com/client/v4/accounts/${account}/workers/subdomain`, 'GET')).subdomain;
+console.log(`Deployed https://${worker}.${subdomain}.workers.dev`);

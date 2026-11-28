@@ -34,7 +34,7 @@ export default function App() {
   const [page, setPage] = useState<Page>('home');
   const [orders, setOrders] = useState<Order[]>([]);
   const [order, setOrder] = useState<Order>(emptyOrder());
-  const [settings, setSettings] = useState<DeliverySettings>({ baseUrl: 'https://daftar-orders-personal.daftar-orders-a3z.workers.dev', appToken: '', serviceId: '' });
+  const [settings, setSettings] = useState<DeliverySettings>({ baseUrl: 'https://rukn.rk-a3.workers.dev', appToken: '', serviceId: '' });
   const [packages, setPackages] = useState<Array<{ _id: string; title?: string; name?: string }>>([]);
   const [busy, setBusy] = useState(false);
   const [ready, setReady] = useState(false);
