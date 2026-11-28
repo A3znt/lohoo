@@ -2,7 +2,7 @@ export type OrderStatus = 'creating' | 'confirmed' | 'processing' | 'on_way' | '
 export type SmsStatus = 'pending' | 'needs_key' | 'sending' | 'sent' | 'delivered' | 'failed' | 'unknown';
 export interface OrderItem { product: string; quantity: number; unitPrice: number; warehouseProductId: string; warehouseVariantId: string; sku?: string; widthCM?: number; heightCM?: number; lengthCM?: number }
 export interface Order {
-  id: string; carrierDeletedAt?: string; orderNumber?: string; createdById?: string; createdByName?: string;
+  id: string; carrierDeletedAt?: string; orderNumber?: string; createdById?: string; createdByName?: string; createdByAdminOnBehalf?: boolean;
   createdAt: string; updatedAt: string; source: 'facebook' | 'instagram';
   paymentMethod?: string; customer: string; phone: string; additionalPhones?: string[]; city: string; area: string; address: string;
   product: string; quantity: number; unitPrice: number; items?: OrderItem[]; deliveryFee: number; paid: number; weightKg?: number;
@@ -17,7 +17,7 @@ export interface Order {
   confirmationSmsError?: string; onWaySmsError?: string;
   agentId?: string; agentName?: string; commissionAmount?: number; commissionEarnedAt?: string; commissionPaidAt?: string;
 }
-export interface Actor { role: 'admin' | 'agent'; id: string; name: string; username?: string }
+export interface Actor { role: 'admin' | 'agent'; id: string; name: string; username?: string; impersonatedByAdmin?: boolean }
 export interface CommissionSummary { assigned: number; delivered: number; earned: number; paid: number; due: number; paidThenReturned?: number }
 export interface WalletEntry { orderId: string; orderNumber?: string; customer: string; product: string; status: OrderStatus; createdAt: string; deletedAt: string; commissionAmount: number; commissionEarnedAt: string; commissionPaidAt: string }
 export interface AgentSummary extends CommissionSummary { id: string; name: string; username: string; enabled: boolean; createdAt: string }
@@ -78,21 +78,40 @@ const jsonPost = (body: Record<string, unknown>): RequestInit => ({
   body: JSON.stringify(body),
 });
 
+const actingAsKey = 'rukn-acting-as-agent';
+export function getActingAsAgent(): string {
+  if (typeof sessionStorage === 'undefined') return '';
+  const id = sessionStorage.getItem(actingAsKey) || '';
+  return /^[a-f0-9-]{36}$/i.test(id) ? id : '';
+}
+export function setActingAsAgent(id: string) {
+  if (id && !/^[a-f0-9-]{36}$/i.test(id)) throw new Error('حساب المندوبة غير صحيح.');
+  if (typeof sessionStorage === 'undefined') return;
+  if (id) sessionStorage.setItem(actingAsKey, id);
+  else sessionStorage.removeItem(actingAsKey);
+}
+
 export async function session(): Promise<Actor | null> {
   const result = await requestJson('/api/auth', { method: 'GET' });
   return result.authenticated && result.actor ? result.actor : null;
 }
 export async function login(token: string): Promise<void> {
   await requestJson('/api/auth', jsonPost({ token }));
+  setActingAsAgent('');
 }
 export async function loginAgent(username: string, password: string): Promise<void> {
   await requestJson('/api/auth', jsonPost({ username, password }));
+  setActingAsAgent('');
 }
 export async function logout(): Promise<void> {
   await requestJson('/api/auth', jsonPost({ action: 'logout' }));
+  setActingAsAgent('');
 }
 export async function api<T>(action: string, data: Record<string, unknown> = {}): Promise<T> {
-  const result = await requestJson('/api/orders', jsonPost({ action, ...data }));
+  const options = jsonPost({ action, ...data });
+  const actingId = getActingAsAgent();
+  if (actingId) (options.headers as Record<string, string>)['X-Rukn-Act-As-Agent'] = actingId;
+  const result = await requestJson('/api/orders', options);
   return result.data as T;
 }
 export function money(value: number): string { return `${new Intl.NumberFormat('ar-LY', { minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(value)} د.ل`; }

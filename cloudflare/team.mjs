@@ -113,7 +113,15 @@ export function agentSessionCookie(agent) {
 }
 export function clearAgentSessionCookie() { return `${COOKIE}=; Max-Age=0; Path=/; HttpOnly; Secure; SameSite=Strict`; }
 export async function getActor(request) {
-  if (isAuthenticated(request)) return { role: 'admin', id: 'admin', name: 'المدير' };
+  if (isAuthenticated(request)) {
+    const actingId = request.headers.get('X-Rukn-Act-As-Agent');
+    if (actingId) {
+      const agent = await readAgent(actingId);
+      if (!agent?.enabled) return null;
+      return { role: 'agent', id: agent.id, name: agent.name, username: agent.username, impersonatedByAdmin: true };
+    }
+    return { role: 'admin', id: 'admin', name: 'المدير' };
+  }
   if (!env('APP_TOKEN')) return null;
   const cookies = request.headers.get('Cookie') || '';
   const value = cookies.split(';').map((part) => part.trim()).find((part) => part.startsWith(`${COOKIE}=`))?.slice(COOKIE.length + 1) || '';

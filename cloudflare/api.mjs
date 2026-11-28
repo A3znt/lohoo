@@ -48,6 +48,7 @@ export default async function handler(request) {
   if (request.method !== 'POST' || !sameOrigin(request)) return json({ ok: false, error: 'طلب غير مسموح.' }, 403);
   const input = await request.json().catch(() => ({}));
   const isAdmin = actor.role === 'admin';
+  const actorLabel = actor.impersonatedByAdmin ? `المدير نيابة عن ${actor.name}` : actor.name;
   const requireAdmin = () => { if (!isAdmin) throw new Error('هذا الإجراء متاح للمدير فقط.'); };
   const requireOwnOrder = async (id) => {
     const entry = await readOrder(id);
@@ -121,7 +122,7 @@ export default async function handler(request) {
         requireAdmin();
         {
           const saved = await removeOrder(input.id);
-          await notifyAdminActivity('deleted', saved, 'حُذف الطلب', actor.name);
+          await notifyAdminActivity('deleted', saved, 'حُذف الطلب', actorLabel);
           return json({ ok: true, data: saved });
         }
       case 'restoreOrder': {
@@ -129,7 +130,7 @@ export default async function handler(request) {
         const { data, etag } = await requireOwnOrder(input.id);
         if (data.status === 'creating') throw new Error('انتظر اكتمال إنشاء الشحنة.');
         const saved = await updateOrder(input.id, { deletedAt: '' }, etag);
-        await notifyAdminActivity('restored', saved, 'استُعيد الطلب', actor.name);
+        await notifyAdminActivity('restored', saved, 'استُعيد الطلب', actorLabel);
         return json({ ok: true, data: saved });
       }
       case 'editOrder': {
@@ -138,7 +139,7 @@ export default async function handler(request) {
         const form = input.order || {};
         if (data.shipmentReference && data.status === 'confirmed' && data.darbStatus === 'pending') {
           const saved = await editPendingShipment(input.id, form, input.version, isAdmin);
-          await notifyAdminActivity('edited', saved, 'عُدّل الطلب', actor.name);
+          await notifyAdminActivity('edited', saved, 'عُدّل الطلب', actorLabel);
           return json({ ok: true, data: saved });
         }
         const patch = { notes: String(form.notes || '').trim().slice(0, 500), source: form.source === 'instagram' ? 'instagram' : 'facebook' };
@@ -153,7 +154,7 @@ export default async function handler(request) {
           if (!isAdmin) patch.paid = data.paid;
         }
         const saved = await updateOrder(input.id, patch, etag);
-        await notifyAdminActivity('edited', saved, 'عُدّل الطلب', actor.name);
+        await notifyAdminActivity('edited', saved, 'عُدّل الطلب', actorLabel);
         return json({ ok: true, data: saved });
       }
       case 'packages': {
@@ -182,7 +183,7 @@ export default async function handler(request) {
         if (!isAdmin && order.agentId !== actor.id) throw new Error('معرّف الطلب مستخدم. أنشئي طلبًا جديدًا.');
         try {
           await createAdminNotification(`new-order:${order.id}`, { kind: 'new_order', orderId: order.id,
-            title: `${isAdmin ? 'سجّلت' : `${order.createdByName || 'المندوبة'} سجّلت`} طلبًا رقم ${order.orderNumber}`,
+            title: `${actor.impersonatedByAdmin ? `المدير سجّل نيابة عن ${actor.name}` : isAdmin ? 'سجّلت' : `${order.createdByName || 'المندوبة'} سجّلت`} طلبًا رقم ${order.orderNumber}`,
             body: `${order.customer} · ${order.city} · ${order.product}${order.items?.length > 1 ? ` + ${order.items.length - 1} منتج` : ''}${order.shipmentReference ? ` · درب السبيل ${order.shipmentReference}` : ' · الشحنة تحتاج مراجعة'}`,
             phone: order.phone, shipmentReference: order.shipmentReference });
         } catch (error) { console.error('New order notification failed', order.id, error instanceof Error ? error.message : error); }
@@ -206,7 +207,7 @@ export default async function handler(request) {
         if (input.status !== undefined) throw new Error('حالة الشحنة تأتي من درب السبيل. حدّث حالة الشحنة.');
         const saved = await updateOrder(input.id, patch);
         if (patch.paid !== undefined && Number(entry.data.paid || 0) !== patch.paid) {
-          await notifyAdminActivity('collection', saved, 'تحدّث تحصيل الطلب', actor.name);
+          await notifyAdminActivity('collection', saved, 'تحدّث تحصيل الطلب', actorLabel);
         }
         return json({ ok: true, data: (await readOrder(input.id))?.data || saved });
       }
@@ -262,7 +263,7 @@ export default async function handler(request) {
         if (input.agentId && (!agent || !agent.enabled)) throw new Error('المندوبة المختارة غير متاحة.');
         if (entry.data.commissionEarnedAt && (agent?.id || '') !== entry.data.agentId) throw new Error('لا يمكن نقل الطلب بعد استحقاق العمولة.');
         const saved = await updateOrder(input.id, { agentId: agent?.id || '', agentName: agent?.name || '' });
-        await notifyAdminActivity('assigned', saved, 'تغيّرت مندوبة الطلب', actor.name);
+        await notifyAdminActivity('assigned', saved, 'تغيّرت مندوبة الطلب', actorLabel);
         if (agent && agent.id !== entry.data.agentId) await notifyAgentSafe(agent.id, `assigned:${saved.id}:${agent.id}`, {
           kind: 'order_activity', orderId: saved.id, title: `أُسندت لك طلبية ${saved.orderNumber}`,
           body: `${saved.customer} · ${saved.city} · درب السبيل ${saved.shipmentReference || 'بانتظار الشحنة'}`,
@@ -276,7 +277,7 @@ export default async function handler(request) {
         if (entry.data.commissionPaidAt) throw new Error('هذه العمولة مسجلة كمدفوعة بالفعل.');
         if (await openPayoutForOrder(input.id)) throw new Error('هذه العمولة ضمن طلب سحب قائم. أكمل طلب السحب من المالية.');
         const saved = await updateOrder(input.id, { commissionPaidAt: new Date().toISOString() });
-        await notifyAdminActivity('commission', saved, 'صُرفت عمولة الطلب', actor.name);
+        await notifyAdminActivity('commission', saved, 'صُرفت عمولة الطلب', actorLabel);
         await notifyAgentSafe(saved.agentId, `commission-paid:${saved.id}`, { kind: 'payout_paid', orderId: saved.id,
           title: `صُرفت عمولة ${saved.orderNumber}`, body: `${Number(saved.commissionAmount || 0)} د.ل · تم تسجيل الصرف في ركن.`,
           phone: saved.phone, shipmentReference: saved.shipmentReference });
@@ -294,7 +295,7 @@ export default async function handler(request) {
         let amount = 0;
         for (const order of unpaid) {
           const saved = await updateOrder(order.id, { commissionPaidAt: new Date().toISOString() });
-          await notifyAdminActivity('commission', saved, 'صُرفت عمولة الطلب', actor.name);
+          await notifyAdminActivity('commission', saved, 'صُرفت عمولة الطلب', actorLabel);
           count += 1;
           amount += Number(order.commissionAmount || 0);
         }

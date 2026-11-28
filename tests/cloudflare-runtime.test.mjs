@@ -153,7 +153,34 @@ import { carrierEvent, createAdminNotification, createCarrierNotification, listN
 import { dailyReviewedIds, maybeSendMorningDigest, reviewShipment, tripoliClock } from '../cloudflare/daily-review.mjs';
 import sync from '../cloudflare/sync.mjs';
 import ordersApi from '../cloudflare/api.mjs';
-import { agentSessionCookie, createAgent, loginAgent } from '../cloudflare/team.mjs';
+import { agentSessionCookie, createAgent, getActor, loginAgent } from '../cloudflare/team.mjs';
+
+test('admin can open an enabled agent account without losing admin access', async () => {
+  await withContext({ DB: fakeD1(), APP_TOKEN: 'admin-preview-token' }, async () => {
+    const agent = await createAgent({ name: 'منى', username: 'mona', password: 'password8' });
+    const other = await createAgent({ name: 'سجى', username: 'saja', password: 'password8' });
+    const base = 'https://rukn.example/api/orders';
+    const adminHeaders = { Authorization: 'Bearer admin-preview-token', 'Content-Type': 'application/json' };
+    const admin = await getActor(new Request(base, { headers: adminHeaders }));
+    assert.equal(admin.role, 'admin');
+    const previewHeaders = { ...adminHeaders, 'X-Rukn-Act-As-Agent': agent.id };
+    const preview = await getActor(new Request(base, { headers: previewHeaders }));
+    assert.deepEqual({ role: preview.role, id: preview.id, impersonatedByAdmin: preview.impersonatedByAdmin },
+      { role: 'agent', id: agent.id, impersonatedByAdmin: true });
+    await ordersStore().setJSON('orders/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', { id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', agentId: agent.id, createdAt: '2026-11-28T00:00:00Z' });
+    await ordersStore().setJSON('orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', { id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', agentId: other.id, createdAt: '2026-11-28T00:00:00Z' });
+    const response = await ordersApi(new Request(base, { method: 'POST', headers: previewHeaders, body: JSON.stringify({ action: 'bootstrap' }) }));
+    const payload = await response.json();
+    assert.equal(payload.data.actor.id, agent.id);
+    assert.equal(payload.data.orders.length, 1);
+    const blocked = await ordersApi(new Request(base, { method: 'POST', headers: previewHeaders, body: JSON.stringify({ action: 'createAgent' }) }));
+    assert.equal(blocked.status, 400);
+    assert.match((await blocked.json()).error, /للمدير فقط/);
+    const normalAgent = await getActor(new Request(base, { headers: { Cookie: agentSessionCookie(await loginAgent('mona', 'password8')).split(';')[0], 'X-Rukn-Act-As-Agent': other.id } }));
+    assert.equal(normalAgent.id, agent.id);
+    assert.equal(normalAgent.impersonatedByAdmin, undefined);
+  });
+});
 
 test('admin manages agent credentials and pays only delivered unpaid commissions', async () => {
   await withContext({ DB: fakeD1(), APP_TOKEN: 'test-admin-token' }, async () => {

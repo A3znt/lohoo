@@ -317,6 +317,7 @@ export async function createOrder(input, assignedAgent = null, creator = null) {
   const now = new Date().toISOString();
   const initial = { id, orderNumber, ...clean,
     createdById: creator?.id || 'admin', createdByName: creator?.name || 'المدير',
+    createdByAdminOnBehalf: Boolean(creator?.impersonatedByAdmin),
     agentId: assignedAgent?.id || '', agentName: assignedAgent?.name || '',
     commissionAmount: 0, commissionEarnedAt: '', commissionPaidAt: '',
     serviceId: service, status: 'creating', shipmentReference: '', shippingPrice: estimate,

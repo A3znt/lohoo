@@ -2,9 +2,9 @@ import { useState } from 'react';
 import { Check, LockKeyhole, PackageCheck, Plus, Users, Wallet, X } from 'lucide-react';
 import { api, money, type AgentSummary, type FinanceSummary, type PayoutRequest } from './api';
 
-type Props = { agents: AgentSummary[]; finance: FinanceSummary | null; requests: PayoutRequest[]; busy: boolean; run: <T>(task: () => Promise<T>, success?: string) => Promise<T> };
+type Props = { agents: AgentSummary[]; finance: FinanceSummary | null; requests: PayoutRequest[]; busy: boolean; run: <T>(task: () => Promise<T>, success?: string) => Promise<T>; onEnterAgent: (agent: AgentSummary) => Promise<void> };
 
-export default function TeamPage({ agents, finance, requests, busy, run }: Props) {
+export default function TeamPage({ agents, finance, requests, busy, run, onEnterAgent }: Props) {
   const [name, setName] = useState('');
   const [username, setUsername] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -85,6 +85,9 @@ export default function TeamPage({ agents, finance, requests, busy, run }: Props
       <label className="field"><span>الاسم</span><input value={editName} onChange={event => setEditName(event.target.value)} /></label>
       <label className="field"><span>اسم الدخول</span><input dir="ltr" value={editUsername} onChange={event => setEditUsername(event.target.value)} autoCapitalize="none" /></label>
       <button className="btn primary full" disabled={busy || editName.trim().length < 2 || editUsername.trim().length < 3} onClick={() => void saveProfile()}>حفظ بيانات الحساب</button>
+      <div className="account-divider" />
+      <button className="btn primary full" disabled={busy || !editing.enabled} onClick={() => void onEnterAgent(editing).catch(() => {})}>الدخول كـ{editing.name}</button>
+      <p>يفتح لك حساب المندوبة من جلستك الحالية. يظهر زر الرجوع إلى الإدارة أعلى الصفحة.</p>
       <div className="account-divider" />
       <label className="field"><span>كلمة المرور الجديدة</span><input dir="ltr" type="password" autoComplete="new-password" minLength={8} maxLength={128} value={password} onChange={event => setPassword(event.target.value)} placeholder="اكتب الكلمة التي تريدها" /></label>
       <label className="field"><span>تأكيد كلمة المرور</span><input dir="ltr" type="password" autoComplete="new-password" value={passwordConfirm} onChange={event => setPasswordConfirm(event.target.value)} placeholder="اكتبها مرة ثانية" /></label>
