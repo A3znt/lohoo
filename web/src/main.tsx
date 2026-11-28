@@ -17,6 +17,7 @@ import './aurora-theme.css';
 import './rukn-theme.css';
 import './wallet.css';
 import './sms.css';
+import './studio-theme.css';
 import OrderForm from './OrderForm';
 import CopyButton from './CopyButton';
 import NotificationsPanel from './NotificationsPanel';
@@ -394,7 +395,7 @@ function App() {
         ] as const).map(([key, Icon, label]) => <button type="button" key={key} className={view === key ? 'active' : ''} aria-current={view === key ? 'page' : undefined} onClick={() => navigate(key)}><Icon size={19} strokeWidth={1.9} /><span>{label}</span>{key === 'orders' && <b>{metrics.total}</b>}</button>)}
       </nav>
       <div className="sidebar-bottom">
-        <div className="sidebar-tip"><Sparkles size={18} /><strong>كل شيء في مكان واحد</strong><span>من رسالة الزبون إلى وصول الطلب.</span></div>
+        <div className="sidebar-tip"><RefreshCw size={18} /><strong>مزامنة تلقائية</strong><span>تُراجع حالات الشحن كل خمس دقائق.</span></div>
         <div className="sidebar-user"><span className="avatar">{data.actor.name.slice(0, 1)}</span><div><strong>{data.actor.name}</strong><small>{actingAs ? 'دخول المدير كالمندوبة' : data.actor.role === 'admin' ? 'مدير المتجر' : 'مندوبة'}</small></div><button aria-label={actingAs ? 'العودة إلى حساب المدير' : 'تسجيل الخروج'} title={actingAs ? 'العودة إلى حساب المدير' : 'تسجيل الخروج'} onClick={async () => { if (actingAs) { await returnToAdmin(); return; } try { if (phoneEnabled) await disablePhoneNotifications(); await logout(); clearSessionData(); } catch (error) { setToast(error instanceof Error ? error.message : 'تعذر تسجيل الخروج'); } }}><LogOut size={18} /></button></div>
       </div>
     </aside>
@@ -406,13 +407,26 @@ function App() {
         {syncError && <div className="sync-warning" role="alert"><CircleAlert size={19} /><span>تعذر تحديث البيانات: {syncError}. {lastSyncedAt ? 'قد تكون الأرقام قديمة.' : 'لم يتم تحميل الطلبات بعد.'}</span><button type="button" disabled={refreshing} onClick={() => void refresh().catch(() => {})}>إعادة المحاولة</button></div>}
         {!lastSyncedAt && <div className="initial-data-loading" role="status">{refreshing ? <div className="spinner" /> : <CircleAlert size={20} />}<span>{refreshing ? 'جاري جلب الطلبات والبيانات من الخادم…' : 'لا يمكن عرض أرقام الطلبات حتى ينجح التحديث. اضغط إعادة المحاولة أعلاه.'}</span></div>}
         {lastSyncedAt && view === 'overview' && <>
-          <div className="hero"><div><div className="eyebrow"><span className="pulse-dot" /> مركز إدارة متجرك</div><h1>كل طلب، من أول رسالة<br /><em>حتى باب الزبون.</em></h1><p>تابع الطلبات والشحن والتحصيل من لوحة واحدة مرتبة وواضحة.</p><button className="btn light" onClick={() => setFormOpen(true)}><Plus size={19} /> إضافة طلب جديد <ArrowLeft size={18} /></button></div><div className="hero-visual" aria-hidden="true"><span className="holo-ring" /><span className="holo-spark" /><span className="holo-spark second" /><div className="hero-card floating-one"><span className="mini-icon"><PackageCheck size={19} /></span><div><strong>متابعة الطلبات</strong><small>من التسجيل إلى التسليم</small></div><Check size={18} /></div><div className="hero-card floating-two"><span className="mini-icon gold"><Send size={18} /></span><div><strong>تحديث الشحنات</strong><small>التتبع والإشعارات في مكان واحد</small></div><span className="waves">✦</span></div><div className="hero-orbit"><Box size={74} strokeWidth={1.1} /></div></div></div>
+          <section className="hero" aria-label="ملخص مساحة العمل">
+            <div className="hero-copy">
+              <div className="eyebrow"><span className="pulse-dot" /> مساحة عمل ركن <span className="hero-date">{today}</span></div>
+              <h1>أهلًا، {data.actor.name}.<br /><em>خلّينا نرتّب يومك.</em></h1>
+              <p>طلباتك، شحناتك، وحساباتك في مكان واحد.</p>
+              <button className="btn light" onClick={() => setFormOpen(true)}><Plus size={19} /> تسجيل طلب جديد <ArrowLeft size={18} /></button>
+            </div>
+            <div className="hero-summary" aria-label="حالة الطلبات الآن">
+              <div className="hero-summary-head"><span>حالة العمل الآن</span><PackageCheck size={18} /></div>
+              <button type="button" onClick={() => openOrders('all')}><span>طلبات قيد المتابعة</span><strong>{metrics.active}</strong><ArrowLeft size={18} /></button>
+              <button type="button" onClick={() => openOrders('on_way')}><span>في الطريق</span><strong>{metrics.onWay}</strong><ArrowLeft size={18} /></button>
+              <small>تتجدد البيانات تلقائيًا كل خمس دقائق</small>
+            </div>
+          </section>
           {metrics.attention > 0 && <div className="notice attention"><CircleAlert size={20} /><span><strong>{metrics.attention} طلب يحتاج مراجعة</strong> — تأكد من حالة الشحنة في درب السبيل قبل إعادة المحاولة.</span><button onClick={() => openOrders('all')}>عرض الطلبات <ArrowLeft size={16} /></button></div>}
           {smsCreditFailures > 0 && <div className="notice sms-credit-warning" role="alert"><CircleAlert size={20} /><span><strong>تعذّر إرسال رسائل {smsCreditFailures} طلب.</strong> رِسالة أبلغت أن الرصيد لم يكفِ وقت الإرسال. {data.actor.role === 'admin' ? 'اشحن الرصيد ثم افتح الطلبات لإعادة إرسال الرسائل الفاشلة.' : 'أبلغ المدير بشحن الرصيد، وبعدها افتح طلبك لإعادة الإرسال.'}</span>{data.actor.role === 'admin' && <a href="https://dashboard.resala.ly/" target="_blank" rel="noopener noreferrer">فتح رِسالة <ArrowUpLeft size={16} /></a>}</div>}
           {uncertainSmsCount > 0 && <div className="notice attention" role="alert"><CircleAlert size={20} /><span><strong>حالة رسائل {uncertainSmsCount} طلب غير مؤكدة.</strong> {data.actor.role === 'admin' ? 'راجع سجل رِسالة قبل أي إعادة؛ قد تكون الرسائل وصلت.' : 'أبلغ المدير ليتحقق من سجل رِسالة قبل أي إعادة.'}</span><button onClick={() => navigate('orders')}>عرض الطلبات <ArrowLeft size={16} /></button></div>}
           {phoneSupported && !phoneEnabled && <div className="notice notification-invite"><Bell size={20} /><span><strong>تحديثات ركن توصلك على الهاتف.</strong> فعّل الإشعارات لتصلك الرسائل وتحديثات الطلبات حتى لو ركن مقفول.</span><button onClick={() => setNotificationsOpen(true)}>تفعيل الإشعارات <ArrowLeft size={16} /></button></div>}
           {data.actor.role === 'admin' && !data.resalaConfigured && <div className="notice"><MessageCircle size={20} /><span><strong>رسائل الزبائن تنتظر قوالب رسالة.</strong> أضف معرّفَي القالبين المعتمدين على الخادم لتبدأ الرسائل التلقائية.</span><button onClick={() => navigate('settings')}>التفاصيل <ArrowLeft size={16} /></button></div>}
-          <div className="section-heading"><div><span className="overline">ملخص اليوم</span><h2>أرقامك بنظرة واحدة</h2></div><span className="muted">تتحدث تلقائيًا مع كل طلب</span></div>
+          <div className="section-heading"><div><span className="overline">ملخص الطلبات</span><h2>أرقامك بنظرة واحدة</h2></div><span className="muted">تتحدث تلقائيًا مع كل طلب</span></div>
           <div className="metric-grid">
             <Metric icon={ClipboardList} label="إجمالي الطلبات" value={String(metrics.total)} note="اضغط لعرض كل الطلبات" tone="teal" onClick={() => openOrders('all')} />
             <Metric icon={Truck} label="طلبات في الطريق" value={String(metrics.onWay)} note="اضغط لعرض الطلبات" tone="blue" onClick={() => openOrders('on_way')} />
