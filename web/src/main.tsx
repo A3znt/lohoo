@@ -27,12 +27,12 @@ import AgentSettingsPage from './AgentSettingsPage';
 import WalletPage from './WalletPage';
 import SmsPanel, { smsFailureText } from './SmsPanel';
 import { exportOrdersCsv } from './order-export.mjs';
-import { dashboardMetrics, filterOrders, sortOrders, weeklyOrderActivity, type OrderSort } from './order-view';
+import { dashboardMetrics, displayOrderStatus, filterOrders, sortOrders, weeklyOrderActivity, type OrderSort } from './order-view';
 import { ApiError, api, getActingAsAgent, login, loginAgent, logout, money, orderNumber, orderTotal, session, setActingAsAgent, type Actor, type AgentSummary, type Bootstrap, type NotificationRecord, type Order, type OrderInput, type OrderStatus, type Package, type Settings } from './api';
 
 type View = 'overview' | 'orders' | 'shipping' | 'wallet' | 'team' | 'settings';
 const statusText: Record<OrderStatus, string> = {
-  creating: 'جاري إنشاء الشحنة', confirmed: 'قيد التجهيز', processing: 'قيد المعالجة', on_way: 'في الطريق', postponed: 'مؤجل', delivery_failed: 'تعذّر التوصيل', delivered: 'تم التسليم',
+  creating: 'قيد التجهيز', confirmed: 'قيد التجهيز', processing: 'في الطريق', on_way: 'في الطريق', postponed: 'مؤجل', delivery_failed: 'تعذّر التوصيل', delivered: 'تم التسليم',
   returned: 'مرتجع', cancelled: 'ملغي', attention: 'يحتاج مراجعة',
 };
 const shortDate = (value: string) => new Intl.DateTimeFormat('ar-LY', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }).format(new Date(value));
@@ -44,7 +44,7 @@ const emptyBootstrap = (actor: Actor = { role: 'admin', id: 'admin', name: 'ال
 });
 
 function IconBox({ icon: Icon, tone = 'teal' }: { icon: typeof Box; tone?: string }) { return <span className={`icon-box ${tone}`}><Icon size={20} strokeWidth={1.8} /></span>; }
-function Status({ value }: { value: OrderStatus }) { return <span className={`status status-${value}`}><i />{statusText[value]}</span>; }
+function Status({ value }: { value: OrderStatus }) { return <span className={`status status-${displayOrderStatus(value)}`}><i />{statusText[value]}</span>; }
 function Source({ value }: { value: Order['source'] }) { return <span className={`source ${value}`}>{value === 'facebook' ? <MessageCircle size={14} /> : <Camera size={14} />}{value === 'facebook' ? 'فيسبوك' : 'إنستغرام'}</span>; }
 function Empty({ title, description, onClick }: { title: string; description: string; onClick?: () => void }) { return <div className="empty"><div className="empty-art"><ClipboardList size={31} /></div><h3>{title}</h3><p>{description}</p>{onClick && <button className="btn primary" onClick={onClick}><Plus size={18} /> إضافة طلب</button>}</div>; }
 
@@ -237,7 +237,8 @@ function App() {
 
   const metrics = useMemo(() => dashboardMetrics(data.orders), [data.orders]);
   const statusCounts = useMemo(() => data.orders.reduce((counts, order) => {
-    counts[order.status] = (counts[order.status] || 0) + 1;
+    const status = displayOrderStatus(order.status);
+    counts[status] = (counts[status] || 0) + 1;
     return counts;
   }, {} as Partial<Record<OrderStatus, number>>), [data.orders]);
   const smsCreditFailures = data.orders.filter((order) => (order.confirmationSms === 'failed' && order.confirmationSmsError === 'InsufficientCredit') || (order.onWaySms === 'failed' && order.onWaySmsError === 'InsufficientCredit')).length;
@@ -433,7 +434,7 @@ function App() {
             {data.actor.role === 'admin' ? <><Metric icon={CreditCard} label="قيمة الطلبات" value={money(metrics.revenue)} note="باستثناء المرتجع والملغي" tone="amber" /><Metric icon={ArrowDownLeft} label="المتبقي للتحصيل" value={money(metrics.due)} note={`${money(metrics.paid)} تم تحصيلها`} tone="rose" /></> : <><Metric icon={Wallet} label="عمولتي المستحقة" value={money(data.commission.earned)} note="15 د.ل بعد التسليم لكل طلب" tone="amber" /><Metric icon={ArrowDownLeft} label="المتبقي لي" value={money(data.commission.due)} note={`${money(data.commission.paid)} تم صرفها`} tone="rose" /></>}
           </div>
           <div className="status-shortcuts" role="group" aria-label="الانتقال السريع حسب حالة الطلب">
-            {([['confirmed', 'قيد التجهيز'], ['processing', 'قيد المعالجة'], ['postponed', 'مؤجل'], ['delivered', 'تم التسليم']] as const).map(([status, label]) =>
+            {([['confirmed', 'قيد التجهيز'], ['postponed', 'مؤجل'], ['delivered', 'تم التسليم']] as const).map(([status, label]) =>
               <button type="button" key={status} className={`status-shortcut status-shortcut-${status}`} onClick={() => openOrders(status)} aria-label={`عرض ${statusCounts[status] || 0} طلب بحالة ${label}`}>
                 <span>{label}</span><strong>{statusCounts[status] || 0}</strong><ArrowLeft size={15} aria-hidden="true" />
               </button>)}
@@ -464,7 +465,7 @@ function App() {
               </div>
               <span className="count-pill">{visible.length} طلب</span>
             </div>
-            <div className="filters">{([['all', 'الكل'], ['creating', 'جاري الإنشاء'], ['confirmed', 'قيد التجهيز'], ['processing', 'قيد المعالجة'], ['on_way', 'في الطريق'], ['postponed', 'مؤجل'], ['delivery_failed', 'تعذّر التوصيل'], ['delivered', 'تم التسليم'], ['returned', 'مرتجع'], ['cancelled', 'ملغي'], ['attention', 'يحتاج مراجعة']] as const).map(([key, label]) => <button key={key} type="button" className={filter === key ? 'selected' : ''} aria-pressed={filter === key} onClick={() => setFilter(key)}>{label}</button>)}</div>
+            <div className="filters">{([['all', 'الكل'], ['confirmed', 'قيد التجهيز'], ['on_way', 'في الطريق'], ['postponed', 'مؤجل'], ['delivery_failed', 'تعذّر التوصيل'], ['delivered', 'تم التسليم'], ['returned', 'مرتجع'], ['cancelled', 'ملغي'], ['attention', 'يحتاج مراجعة']] as const).map(([key, label]) => <button key={key} type="button" className={filter === key ? 'selected' : ''} aria-pressed={filter === key} onClick={() => setFilter(key)}>{label}</button>)}</div>
             {visible.length ? <><OrderList orders={visible.slice(0, visibleLimit)} onSelect={setSelected} />{visible.length > visibleLimit && <div className="load-more"><span>عرض {visibleLimit} من {visible.length} طلب</span><button type="button" className="btn ghost" onClick={() => setVisibleLimit((value) => value + 30)}>عرض المزيد</button></div>}</> : <Empty title={query.trim() || filter !== 'all' ? 'لا توجد طلبات مطابقة' : 'ما فيش طلبات هنا بعد'} description={query.trim() || filter !== 'all' ? 'جرّب تغيير البحث أو حالة الطلب.' : 'أضف أول طلب جديد.'} onClick={query.trim() || filter !== 'all' ? undefined : () => setFormOpen(true)} />}
           </div>
         </>}
