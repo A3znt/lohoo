@@ -1,5 +1,5 @@
 import { canCorrectShipment } from '../shared/shipment-recovery.mjs';
-import { removeOrder, createOrder, darb, editPendingShipment, ensureValidCollection, env, json, listDeliveryLocations, listOrders, listWarehouseProducts, productSubtotal, quoteOrder, readOrder, resalaReady, retryShipment, sameOrigin, shippingComponents, syncSmsDelivery,
+import { removeOrder, createOrder, darb, editPendingShipment, ensureValidCollection, env, json, listDeliveryLocations, listOrders, listWarehouseProducts, productSubtotal, quoteOrder, readOrder, resalaReady, retryShipment, sameOrigin, shippingComponents, syncSmsDelivery, sendPostponementSms,
   saveSettings, sendStageSms, settings, syncOrder, updateOrder } from './core.mjs';
 import { agentSessionCookie, changeOwnAgentPassword, createAgent, getActor, listAgents, publicAgent, readAgent, resetAgentPassword, setAgentEnabled, updateAgentProfile } from './team.mjs';
 import { createAdminNotification, createManualNotifications, createRecipientNotification, listNotifications, markAllNotificationsRead, markNotificationRead, removePushSubscription, savePushSubscription, testPhonePush } from './notifications.mjs';
@@ -26,7 +26,7 @@ function financeSummary(orders) {
     collected: active.reduce((sum, order) => sum + Number(order.paid || 0), 0),
     outstanding: active.reduce((sum, order) => sum + Math.max(0, total(order) - Number(order.paid || 0)), 0),
     deliveryCharged: active.reduce((sum, order) => sum + Number(order.deliveryFee || 0), 0),
-    smsCost: orders.reduce((sum, order) => sum + Number(order.confirmationSmsCost || 0) + Number(order.onWaySmsCost || 0), 0),
+    smsCost: orders.reduce((sum, order) => sum + Number(order.confirmationSmsCost || 0) + Number(order.onWaySmsCost || 0) + Number(order.postponementSmsCost || 0), 0),
     returnedCollected: orders.filter((order) => ['cancelled', 'returned'].includes(order.status)).reduce((sum, order) => sum + Number(order.paid || 0), 0) };
 }
 
@@ -222,18 +222,22 @@ export default async function handler(request) {
       }
       case 'retryMessage': {
         let entry = await requireOwnOrder(input.id);
-        const stage = input.stage === 'onWay' ? 'onWay' : 'confirmation';
-        const field = stage === 'onWay' ? 'onWaySms' : 'confirmationSms';
+        const stage = input.stage === 'onWay' ? 'onWay' : input.stage === 'postponed' ? 'postponed' : 'confirmation';
+        const field = stage === 'onWay' ? 'onWaySms' : stage === 'postponed' ? 'postponementSms' : 'confirmationSms';
         if (!entry.data.shipmentReference || entry.data.carrierDeletedAt || entry.data.darbStatus === 'not_found') {
           throw new Error('لا يمكن إرسال الرسالة؛ الشحنة غير موجودة حاليًا في درب السبيل.');
         }
         if (stage === 'onWay' && !['on_way', 'delivered'].includes(entry.data.status)) throw new Error('رسالة الطريق متاحة بعد خروج الشحنة للتوصيل.');
+        if (stage === 'postponed' && (entry.data.status !== 'postponed' || !entry.data.carrierReason)) throw new Error('رسالة التأجيل تحتاج سببًا من درب السبيل.');
         if (!['pending', 'needs_key', 'failed'].includes(entry.data[field])) throw new Error('راجع حالة الرسالة في رِسالة قبل محاولة ثانية؛ قد تكون وصلت بالفعل.');
         if (env('DARB_API_KEY')) {
           await syncOrder(input.id, { requireFound: true });
           entry = await requireOwnOrder(input.id);
           if (entry.data.carrierDeletedAt || entry.data.darbStatus === 'not_found') throw new Error('لا يمكن إرسال الرسالة؛ الشحنة غير موجودة حاليًا في درب السبيل.');
+          if (stage === 'postponed' && (entry.data.status !== 'postponed' || !entry.data.carrierReason)) throw new Error('حالة الشحنة تغيرت أو سبب التأجيل غير متاح.');
         }
+        if (stage === 'postponed') return json({ ok: true, data: await sendPostponementSms(input.id,
+          { kind: 'postponed', reason: entry.data.carrierReason, eventId: entry.data.postponementSmsEventId || '' }, { force: true }) });
         if (entry.data[field] === 'failed') await updateOrder(input.id, { [field]: 'pending', [`${field}Error`]: '' }, entry.etag);
         return json({ ok: true, data: await sendStageSms(input.id, stage) });
       }

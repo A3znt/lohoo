@@ -170,6 +170,7 @@ export async function createAdminNotification(key, details) {
 }
 
 export async function createCarrierNotification(order, event) {
+  if (event.kind === 'postponed' && !event.reason) return null;
   const signature = `${order.id}\n${event.kind}\n${event.reason}\n${event.eventId}`;
   const id = (await pushKey(signature)).slice(5);
   const title = event.kind === 'postponed' ? 'طلبية مؤجّلة' : event.kind === 'cancelled' ? 'طلبية ملغية'
@@ -178,7 +179,8 @@ export async function createCarrierNotification(order, event) {
   const location = [order.city, order.area].filter(Boolean).join('، ');
   const body = `${number} · ${order.customer}${location ? ` · ${location}` : ''}${order.shipmentReference ? ` · درب السبيل ${order.shipmentReference}` : ''} · ${event.reason ? `السبب: ${event.reason}` : 'السبب غير متوفر بعد.'}`;
   const createdAt = new Date().toISOString();
-  const recipients = [...new Set(['admin', order.createdById, order.agentId].filter((recipient) => recipient === 'admin' || agentIdValid(recipient)))];
+  const recipients = [...new Set(['admin', order.createdById, ...(event.kind === 'postponed' ? [] : [order.agentId])]
+    .filter((recipient) => recipient === 'admin' || agentIdValid(recipient)))];
   const notifications = await Promise.all(recipients.map(async (recipient) => {
     const notification = { id, agentId: recipient, orderId: order.id, kind: event.kind, title, body,
       reason: event.reason, phone: order.phone || '', shipmentReference: order.shipmentReference || '', createdAt, readAt: '' };

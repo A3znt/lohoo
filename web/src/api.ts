@@ -12,9 +12,9 @@ export interface Order {
   notes: string; serviceId: string; status: OrderStatus; shipmentReference: string;
   darbStatus: string; shippingPrice: unknown; shippingError: string; readyToRetry?: boolean;
   carrierReason?: string;
-  confirmationSms: SmsStatus; onWaySms: SmsStatus;
-  confirmationSmsCost?: number; onWaySmsCost?: number;
-  confirmationSmsError?: string; onWaySmsError?: string;
+  confirmationSms: SmsStatus; onWaySms: SmsStatus; postponementSms?: SmsStatus;
+  confirmationSmsCost?: number; onWaySmsCost?: number; postponementSmsCost?: number;
+  confirmationSmsError?: string; onWaySmsError?: string; postponementSmsError?: string; postponementSmsReason?: string;
   agentId?: string; agentName?: string; commissionAmount?: number; commissionEarnedAt?: string; commissionPaidAt?: string;
 }
 export interface Actor { role: 'admin' | 'agent'; id: string; name: string; username?: string; impersonatedByAdmin?: boolean }

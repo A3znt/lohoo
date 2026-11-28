@@ -783,7 +783,7 @@ test('missing Darb shipment cannot trigger a stale confirmation SMS retry', asyn
   } finally { globalThis.fetch = previousFetch; }
 });
 
-test('Darb postponement, failed delivery and cancellation notify admin, creator and responsible agent once', async () => {
+test('Darb postponement notifies only admin and creator; other carrier events notify responsible agent', async () => {
   const id = '11111111-1111-4111-8111-111111111111';
   const muna = '22222222-2222-4222-8222-222222222222';
   const saja = '33333333-3333-4333-8333-333333333333';
@@ -800,17 +800,17 @@ test('Darb postponement, failed delivery and cancellation notify admin, creator 
         updatedAt: '2026-11-20T00:00:00Z' });
       await syncOrder(id);
       let notices = await listNotifications(muna);
-      assert.equal(notices.length, 1);
+      assert.equal(notices.length, 0);
       assert.equal((await listNotifications('admin')).length, 1);
-      assert.match(notices[0].body, /طلب الزبون التأجيل/);
-      assert.match(notices[0].body, /طرابلس، عين زارة/);
       assert.equal((await listNotifications(saja)).length, 1);
+      assert.match((await listNotifications(saja))[0].body, /طلب الزبون التأجيل/);
+      assert.match((await listNotifications(saja))[0].body, /طرابلس، عين زارة/);
       assert.equal((await ordersStore().get(`orders/${id}`)).status, 'postponed');
       await syncOrder(id);
-      assert.equal((await listNotifications(muna)).length, 1);
+      assert.equal((await listNotifications(muna)).length, 0);
       assert.equal((await listNotifications('admin')).length, 1);
       assert.equal((await listNotifications(saja))[0].orderId, id);
-      assert.ok((await markNotificationRead(muna, notices[0].id)).readAt);
+      assert.ok((await markNotificationRead(saja, (await listNotifications(saja))[0].id)).readAt);
       status = 'pending'; reason = '';
       await syncOrder(id);
       assert.equal((await ordersStore().get(`orders/${id}`)).status, 'confirmed');
@@ -818,17 +818,58 @@ test('Darb postponement, failed delivery and cancellation notify admin, creator 
       status = 'undelivered'; reason = 'تعذر التواصل مع الزبون';
       await syncOrder(id);
       notices = await listNotifications(muna);
-      assert.equal(notices.length, 3);
+      assert.equal(notices.length, 2);
       assert.ok(notices.some((item) => item.kind === 'delivery_failed' && item.reason === reason));
       status = 'cancelled'; reason = 'إلغاء من شركة التوصيل';
       await syncOrder(id);
       notices = await listNotifications(muna);
-      assert.equal(notices.length, 4);
+      assert.equal(notices.length, 3);
       assert.equal((await listNotifications('admin')).length, 4);
       assert.equal((await listNotifications(saja)).length, 4);
       assert.equal((await markAllNotificationsRead(saja)).filter((item) => !item.readAt).length, 0);
       assert.equal((await listNotifications(muna)).filter((item) => !item.readAt).length, 3);
       assert.equal((await ordersStore().get(`orders/${id}`)).status, 'cancelled');
+    });
+  } finally { globalThis.fetch = previousFetch; }
+});
+
+test('postponement reason is sent once and a changed reason creates one new customer message', async () => {
+  const id = '91919191-9191-4919-8919-919191919191';
+  const muna = '22222222-2222-4222-8222-222222222222';
+  const saja = '33333333-3333-4333-8333-333333333333';
+  const previousFetch = globalThis.fetch;
+  let reason = '';
+  const messages = [];
+  globalThis.fetch = async (url, options = {}) => {
+    if (String(url).includes('/messages/send-template')) {
+      messages.push(JSON.parse(options.body));
+      return Response.json({ succeeded: 1, failed: 0, total_cost: 0.05, sms_template_version: { id: 'approved-version' } }, { status: 201 });
+    }
+    if (String(url).includes('/timeline/')) return Response.json({ status: true, data: { results: [{ type: 'delayed', remarks: reason, _id: 'delay-1' }] } });
+    return Response.json({ status: true, data: { results: [{ _id: 'aaaaaaaaaaaaaaaaaaaaaaaa', reference: '1234567', status: 'delayed',
+      timeline: [{ type: 'delayed', remarks: reason, _id: 'delay-1' }] }] } });
+  };
+  try {
+    await withContext({ DB: fakeD1(), DARB_API_KEY: 'fixture', DARB_ACCOUNT_ID: 'fixture', RESALA_API_KEY: 'fixture',
+      RESALA_POSTPONED_TEMPLATE_ID: 'approved-template' }, async () => {
+      await ordersStore().setJSON(`orders/${id}`, { id, orderNumber: 'MO001', customer: 'زبون', phone: '0912345678',
+        city: 'طرابلس', area: 'عين زارة', createdById: muna, agentId: saja, shipmentReference: '1234567',
+        shipmentId: 'aaaaaaaaaaaaaaaaaaaaaaaa', status: 'confirmed', darbStatus: 'pending', updatedAt: '2026-11-20T00:00:00Z' });
+      await syncOrder(id);
+      assert.equal(messages.length, 0);
+      reason = 'طلب الزبون التأجيل';
+      await syncOrder(id);
+      await syncOrder(id);
+      assert.equal(messages.length, 1);
+      assert.deepEqual(messages[0].records[0], { phone: '218912345678', $1: 'MO001', $2: reason, $3: '1234567' });
+      assert.equal((await ordersStore().get(`orders/${id}`)).postponementSms, 'sent');
+      assert.equal((await listNotifications(muna)).filter((item) => item.kind === 'postponed').length, 1);
+      assert.equal((await listNotifications(saja)).length, 0);
+      reason = 'الزبون خارج المدينة';
+      await syncOrder(id);
+      await syncOrder(id);
+      assert.equal(messages.length, 2);
+      assert.equal(messages[1].records[0].$2, reason);
     });
   } finally { globalThis.fetch = previousFetch; }
 });
@@ -892,7 +933,7 @@ test('a new carrier notification sends an encrypted web push to the subscribed a
       VAPID_SUBJECT: 'https://example.com' }, async () => {
       await savePushSubscription(agentId, subscription);
       await createCarrierNotification({ id: '11111111-1111-4111-8111-111111111111', orderNumber: '123456789012',
-        customer: 'زبون', agentId }, { kind: 'postponed', reason: 'طلب تأجيل', eventId: '' });
+        customer: 'زبون', agentId, createdById: agentId }, { kind: 'postponed', reason: 'طلب تأجيل', eventId: '' });
       assert.equal(sent.url, subscription.endpoint);
       assert.equal(sent.options.method.toUpperCase(), 'POST');
       assert.match(String(sent.options.headers.authorization), /^vapid /);

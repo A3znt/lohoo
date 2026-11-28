@@ -20,7 +20,7 @@ export default async function handler() {
         }
         return;
       }
-      for (const field of ['confirmationSms', 'onWaySms']) {
+      for (const field of ['confirmationSms', 'onWaySms', 'postponementSms']) {
         const started = Date.parse(order[`${field}StartedAt`] || '');
         if (order[field] === 'sending' && Number.isFinite(started) && Date.now() - started > 5 * 60_000) {
           await updateOrder(order.id, { [field]: 'unknown' });

@@ -20,13 +20,15 @@ export default function SmsPanel({ order, busy, resalaConfigured, onAction }: Pr
   const rows = [
     { stage: 'confirmation', title: 'رسالة تأكيد الطلب', status: order.confirmationSms, error: order.confirmationSmsError, ready: shipmentReady },
     { stage: 'onWay', title: 'رسالة في الطريق', status: order.onWaySms, error: order.onWaySmsError, ready: shipmentReady && ['on_way', 'delivered'].includes(order.status) },
+    { stage: 'postponed', title: 'رسالة سبب التأجيل', status: order.postponementSms || 'pending', error: order.postponementSmsError,
+      ready: shipmentReady && order.status === 'postponed' && Boolean(order.carrierReason) },
   ] as const;
   return <div className="sms-panel"><div className="sms-panel-heading"><MessageCircle size={17} /><h4>رسائل الزبون</h4></div>{rows.map((row) => {
     const canSend = row.ready && resalaConfigured && ['pending', 'needs_key', 'failed'].includes(row.status);
     return <div className={`sms-stage sms-stage-${row.status}`} key={row.stage}><div className="sms-stage-head"><strong>{row.title}</strong><span>{statusLabel[row.status]}</span></div>
       {row.status === 'failed' && <p className="sms-stage-error" role="alert"><CircleAlert size={15} />{smsFailureText(row.error)}</p>}
       {row.status === 'unknown' && <p className="sms-stage-error"><CircleAlert size={15} />تحقق من سجل رِسالة قبل الإعادة؛ قد تكون وصلت بالفعل.</p>}
-      {row.status === 'pending' && !row.ready && <p className="sms-stage-note">{order.darbStatus === 'not_found' ? 'الشحنة غير موجودة لدى درب السبيل؛ لا يمكن إرسال هذه الرسالة.' : row.stage === 'onWay' ? 'تُرسل بعد خروج الشحنة للتوصيل.' : 'تُرسل بعد إنشاء الشحنة.'}</p>}
+      {row.status === 'pending' && !row.ready && <p className="sms-stage-note">{order.darbStatus === 'not_found' ? 'الشحنة غير موجودة لدى درب السبيل؛ لا يمكن إرسال هذه الرسالة.' : row.stage === 'postponed' ? 'تُرسل بعد أن يؤجّل درب السبيل الطلب ويعرض السبب.' : row.stage === 'onWay' ? 'تُرسل بعد خروج الشحنة للتوصيل.' : 'تُرسل بعد إنشاء الشحنة.'}</p>}
       {row.status === 'needs_key' && !resalaConfigured && <p className="sms-stage-note">يلزم تجهيز قالب الرسالة من حساب المدير.</p>}
       {row.status === 'sent' && <p className="sms-stage-note">قبلتها رِسالة، وننتظر تأكيد وصولها للهاتف.</p>}
       {canSend && <button type="button" className="btn ghost sms-retry" disabled={busy} onClick={() => onAction('retryMessage', { stage: row.stage }, '')}><RefreshCw size={15} />{row.status === 'failed' ? 'إعادة إرسال الرسالة' : 'إرسال الرسالة الآن'}</button>}

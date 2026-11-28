@@ -321,7 +321,7 @@ export async function createOrder(input, assignedAgent = null, creator = null) {
     agentId: assignedAgent?.id || '', agentName: assignedAgent?.name || '',
     commissionAmount: 0, commissionEarnedAt: '', commissionPaidAt: '',
     serviceId: service, status: 'creating', shipmentReference: '', shippingPrice: estimate,
-    darbStatus: '', shippingError: '', confirmationSms: 'pending', onWaySms: 'pending', createdAt: now, updatedAt: now };
+    darbStatus: '', shippingError: '', confirmationSms: 'pending', onWaySms: 'pending', postponementSms: 'pending', createdAt: now, updatedAt: now };
   const created = await ordersStore().setJSON(orderKey(id), initial, { onlyIfNew: true });
   if (!created.modified) return (await readOrder(id))?.data;
   return submitShipment(id, clean, service, estimate, config);
@@ -452,6 +452,60 @@ export async function sendStageSms(id, stage) {
   return updateOrder(id, { [field]: 'sent', [`${field}Id`]: payload.sms_template_version?.id || '',
     ...(Number.isFinite(cost) && cost >= 0 ? { [`${field}Cost`]: cost } : {}) });
 }
+export async function sendPostponementSms(id, event, { force = false } = {}) {
+  if (event?.kind !== 'postponed' || !event.reason) return (await readOrder(id))?.data || null;
+  const entry = await readOrder(id);
+  if (!entry) throw new Error('الطلب غير موجود.');
+  const order = entry.data;
+  if (order.status !== 'postponed' || !order.shipmentReference || order.deletedAt || order.carrierDeletedAt || order.darbStatus === 'not_found') return order;
+  const signature = `${order.shipmentReference}\n${event.eventId || ''}\n${event.reason}`;
+  if (order.postponementSmsSignature === signature && !force) return order;
+  if (force && order.postponementSmsSignature === signature && !['failed', 'needs_key', 'pending'].includes(order.postponementSms || 'pending')) return order;
+  const templateId = env('RESALA_POSTPONED_TEMPLATE_ID');
+  if (!env('RESALA_API_KEY') || !templateId) return updateOrder(id, { postponementSms: 'needs_key' });
+  const code = order.orderNumber || orderNumberFromId(id);
+  if ([code, event.reason, order.shipmentReference].some((value, index) => [...String(value)].length > (index === 1 ? 200 : 20))) {
+    return updateOrder(id, { postponementSms: 'failed', postponementSmsError: 'بيانات التأجيل أطول من حد قالب رِسالة.' });
+  }
+  let record;
+  try { record = { phone: phone(order.phone), $1: code, $2: event.reason, $3: order.shipmentReference }; }
+  catch (error) { return updateOrder(id, { postponementSms: 'failed', postponementSmsError: error.message }); }
+  const startedAt = new Date().toISOString();
+  const marked = await ordersStore().setJSON(orderKey(id), { ...order, postponementSms: 'sending',
+    postponementSmsSignature: signature, postponementSmsReason: event.reason,
+    postponementSmsStartedAt: startedAt, updatedAt: startedAt }, { onlyIfMatch: entry.etag });
+  if (!marked.modified) return (await readOrder(id))?.data;
+  const uncertain = async () => {
+    const saved = await updateOrder(id, { postponementSms: 'unknown' });
+    try { await createAdminNotification(`sms-unknown:${id}:postponed:${signature}`, { kind: 'sms_alert', orderId: id,
+      title: 'حالة رسالة التأجيل غير مؤكدة', body: `راجع سجل رِسالة للطلب ${code} قبل إعادة الإرسال؛ قد تكون وصلت.` }); }
+    catch (error) { console.error('Postponement SMS alert failed', id, error instanceof Error ? error.message : error); }
+    return saved;
+  };
+  let response;
+  try {
+    response = await fetch(`${RESALA_BASE}/messages/send-template?sms_template_id=${encodeURIComponent(templateId)}`, {
+      method: 'POST', headers: { Authorization: `Bearer ${env('RESALA_API_KEY')}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ records: [record] }),
+    });
+  } catch { return uncertain(); }
+  const payload = await response.json().catch(() => null);
+  if (response.status >= 500 || (response.ok && !payload)) return uncertain();
+  if (!response.ok || payload?.failed > 0 || payload?.invalid_numbers?.length || payload?.failed_numbers?.length) {
+    const errorType = payload?.type || `HTTP ${response.status}`;
+    const failed = await updateOrder(id, { postponementSms: 'failed', postponementSmsError: errorType });
+    if (errorType === 'InsufficientCredit') {
+      try { await createAdminNotification(`sms-credit:${id}:postponed:${signature}`, { kind: 'sms_alert', orderId: id,
+        title: 'رصيد رِسالة غير كافٍ', body: `تعذّر إرسال سبب تأجيل الطلب ${code}. اشحن الرصيد ثم أعد الإرسال من تفاصيل الطلب.` }); }
+      catch (error) { console.error('Postponement SMS credit alert failed', id, error instanceof Error ? error.message : error); }
+    }
+    return failed;
+  }
+  if (payload?.succeeded !== 1 || payload?.failed !== 0) return uncertain();
+  const cost = Number(payload.total_cost);
+  return updateOrder(id, { postponementSms: 'sent', postponementSmsError: '', postponementSmsId: payload.sms_template_version?.id || '',
+    ...(Number.isFinite(cost) && cost >= 0 ? { postponementSmsCost: Number(order.postponementSmsCost || 0) + cost } : {}) });
+}
 export function resalaDeliveryStatus(rows, order, stage) {
   const numbers = [order.orderNumber || orderNumberFromId(order.id), order.legacyOrderNumber, order.id.slice(0, 8)].filter(Boolean);
   const matching = (Array.isArray(rows) ? rows : []).find((item) => {
@@ -459,11 +513,13 @@ export function resalaDeliveryStatus(rows, order, stage) {
     if (content.startsWith('ركن: طلبك ') && content.includes('التتبع ')) {
       return numbers.some((number) => content.includes(number)) &&
         Boolean(order.shipmentReference && content.includes(order.shipmentReference)) &&
-        (stage === 'onWay' ? content.includes('بالطريق') : content.includes('مؤكد'));
+        (stage === 'postponed' ? content.includes('تأجل. السبب:') && content.includes(order.postponementSmsReason || order.carrierReason || '')
+          : stage === 'onWay' ? content.includes('بالطريق') : content.includes('مؤكد'));
     }
     if (content.includes('تم تأكيد طلبيتك:') && content.includes('كود الطلبية الخاص بدرب السبيل:')) {
       return stage === 'confirmation' && Boolean(order.shipmentReference) && content.split('كود الطلبية الخاص بدرب السبيل:')[1].trim().split(/\s/)[0] === order.shipmentReference;
     }
+    if (stage === 'postponed') return false;
     return numbers.some((number) => content.includes(number)) && (stage === 'onWay'
       ? Boolean(order.shipmentReference && content.includes(order.shipmentReference))
       : !order.shipmentReference || !content.includes(order.shipmentReference));
@@ -472,16 +528,16 @@ export function resalaDeliveryStatus(rows, order, stage) {
 }
 export async function syncSmsDelivery(id) {
   const entry = await readOrder(id);
-  if (!entry || !env('RESALA_API_KEY') || !['confirmationSms', 'onWaySms'].some((field) => entry.data[field] === 'sent')) return entry?.data || null;
+  if (!entry || !env('RESALA_API_KEY') || !['confirmationSms', 'onWaySms', 'postponementSms'].some((field) => entry.data[field] === 'sent')) return entry?.data || null;
   const order = entry.data;
   const change = {};
-  for (const field of ['confirmationSms', 'onWaySms']) {
+  for (const field of ['confirmationSms', 'onWaySms', 'postponementSms']) {
     const started = Date.parse(order[`${field}StartedAt`] || '');
     if (order[field] === 'sent' && Number.isFinite(started) && Date.now() - started > 3 * 24 * 60 * 60_000) {
       change[field] = 'unknown';
     }
   }
-  if (!['confirmationSms', 'onWaySms'].some((field) => order[field] === 'sent' && !change[field])) {
+  if (!['confirmationSms', 'onWaySms', 'postponementSms'].some((field) => order[field] === 'sent' && !change[field])) {
     return Object.keys(change).length ? updateOrder(id, change) : order;
   }
   const url = new URL(`${RESALA_BASE}/sent-view`);
@@ -490,7 +546,7 @@ export async function syncSmsDelivery(id) {
   const response = await fetch(url, { headers: { Authorization: `Bearer ${env('RESALA_API_KEY')}` } });
   if (!response.ok) return Object.keys(change).length ? updateOrder(id, change) : order;
   const payload = await response.json().catch(() => ({}));
-  for (const [stage, field] of [['confirmation', 'confirmationSms'], ['onWay', 'onWaySms']]) {
+  for (const [stage, field] of [['confirmation', 'confirmationSms'], ['onWay', 'onWaySms'], ['postponed', 'postponementSms']]) {
     if (order[field] !== 'sent' || change[field]) continue;
     const status = resalaDeliveryStatus(payload.data, order, stage);
     if (status === 'delivered') change[field] = 'delivered';
@@ -639,6 +695,7 @@ export async function syncOrder(id, { requireFound = false } = {}) {
   }
   if (status !== latest.darbStatus) updates.darbStatus = status;
   if (event && event.reason !== (latest.carrierReason || '')) updates.carrierReason = event.reason;
+  if (event?.kind === 'postponed' && event.eventId !== (latest.postponementSmsEventId || '')) updates.postponementSmsEventId = event.eventId;
   if (event?.kind === 'postponed') updates.status = 'postponed';
   else if (event?.kind === 'delivery_failed') updates.status = 'delivery_failed';
   else if (event?.kind === 'cancelled') updates.status = 'cancelled';
@@ -655,12 +712,20 @@ export async function syncOrder(id, { requireFound = false } = {}) {
       try { await createCarrierNotification(latest, event); }
       catch (error) { console.error(JSON.stringify({ event: 'notification_failed', message: String(error) })); }
     }
-    return latest;
+    if (event?.kind === 'postponed' && event.reason && (await settings()).autoMessages) {
+      try { await sendPostponementSms(id, event); }
+      catch (error) { console.error('Postponement SMS failed', id, error instanceof Error ? error.message : error); }
+    }
+    return (await readOrder(id))?.data;
   }
   const saved = await updateOrder(id, updates, entry.etag);
   if (event && (updates.status || updates.carrierReason !== undefined)) {
     try { await createCarrierNotification({ ...latest, ...updates }, event); }
     catch (error) { console.error(JSON.stringify({ event: 'notification_failed', message: String(error) })); }
+  }
+  if (event?.kind === 'postponed' && event.reason && (await settings()).autoMessages) {
+    try { await sendPostponementSms(id, event); }
+    catch (error) { console.error('Postponement SMS failed', id, error instanceof Error ? error.message : error); }
   }
   if (updates.status && ['on_way', 'delivered', 'confirmed', 'processing'].includes(updates.status)) {
     const titles = { on_way: 'الطلب في الطريق', delivered: 'تم تسليم الطلب', confirmed: 'استؤنف الطلب', processing: 'الطلب قيد المعالجة' };
